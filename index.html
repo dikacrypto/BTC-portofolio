@@ -12,9 +12,9 @@
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
 <link rel="icon" type="image/png" sizes="192x192" href="/icon-192x192.png">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' https: data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdnjs.cloudflare.com https://fonts.googleapis.com https://fonts.gstatic.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://api.anthropic.com https://api.github.com https://gist.github.com;">
+
 <meta http-equiv="X-Content-Type-Options" content="nosniff">
-<title>₿ Dika Portfolio</title>
+<title>₿ MY BTC Portfolio</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,300;0,400;0,500;1,300&family=Inter:wght@300;400;500;600;700;800;900&family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
@@ -22,6 +22,112 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<!-- Firebase SDK -->
+<script type="module">
+  import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
+  import { getFirestore, doc, setDoc, getDoc, onSnapshot } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+  import { getAuth, signInAnonymously, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
+
+  // ══════════════════════════════════════════════
+  // FIREBASE CONFIG — ISI DENGAN CONFIG ANDA
+  // Dapatkan dari: console.firebase.google.com
+  // ══════════════════════════════════════════════
+  const firebaseConfig = {
+    apiKey: window.FB_API_KEY || "YOUR_API_KEY",
+    authDomain: window.FB_AUTH_DOMAIN || "YOUR_PROJECT.firebaseapp.com",
+    projectId: window.FB_PROJECT_ID || "YOUR_PROJECT_ID",
+    storageBucket: window.FB_STORAGE_BUCKET || "YOUR_PROJECT.appspot.com",
+    messagingSenderId: window.FB_MSG_ID || "YOUR_MSG_ID",
+    appId: window.FB_APP_ID || "YOUR_APP_ID"
+  };
+
+  let db = null, auth = null, userId = null, unsubscribe = null;
+
+  async function initFirebase() {
+    try {
+      const app = initializeApp(firebaseConfig);
+      db = getFirestore(app);
+      auth = getAuth(app);
+
+      await signInAnonymously(auth);
+      onAuthStateChanged(auth, async (user) => {
+        if (user) {
+          userId = user.uid;
+          window._firebaseUserId = userId;
+          window._firebaseReady = true;
+          console.log('[Firebase] Connected. User:', userId);
+          showFirebaseStatus('connected');
+          // Realtime listener
+          startRealtimeSync();
+        }
+      });
+    } catch(e) {
+      console.warn('[Firebase] Init failed:', e.message);
+      showFirebaseStatus('error');
+    }
+  }
+
+  function startRealtimeSync() {
+    if (!db || !userId) return;
+    if (unsubscribe) unsubscribe();
+    const docRef = doc(db, 'portfolios', userId);
+    unsubscribe = onSnapshot(docRef, (snap) => {
+      if (snap.exists()) {
+        const data = snap.data();
+        // Merge ke STATE hanya jika ada perubahan dari device lain
+        if (data._timestamp && window._lastSaveTimestamp && data._timestamp > window._lastSaveTimestamp) {
+          const { _timestamp, ...stateData } = data;
+          window.STATE = { ...window.STATE, ...stateData };
+          if (typeof renderAll === 'function') renderAll();
+          console.log('[Firebase] Data synced from cloud');
+        }
+      }
+    }, (err) => { console.warn('[Firebase] Listener error:', err.message); });
+  }
+
+  window.fbSave = async function(state) {
+    if (!db || !userId) return false;
+    try {
+      const ts = Date.now();
+      window._lastSaveTimestamp = ts;
+      await setDoc(doc(db, 'portfolios', userId), { ...state, _timestamp: ts });
+      return true;
+    } catch(e) {
+      console.warn('[Firebase] Save failed:', e.message);
+      return false;
+    }
+  };
+
+  window.fbLoad = async function() {
+    if (!db || !userId) return null;
+    try {
+      const snap = await getDoc(doc(db, 'portfolios', userId));
+      if (snap.exists()) {
+        const { _timestamp, ...data } = snap.data();
+        return data;
+      }
+      return null;
+    } catch(e) {
+      console.warn('[Firebase] Load failed:', e.message);
+      return null;
+    }
+  };
+
+  function showFirebaseStatus(status) {
+    const el = document.getElementById('fb-status');
+    if (!el) return;
+    if (status === 'connected') {
+      el.innerHTML = '☁️ Firebase Aktif';
+      el.style.color = 'var(--green)';
+    } else if (status === 'error') {
+      el.innerHTML = '⚠️ Firebase Off';
+      el.style.color = 'var(--yellow)';
+    }
+  }
+
+  initFirebase();
+</script>
+
 <style>
   :root {
     --bg: #050710;
@@ -2415,6 +2521,42 @@
   </div>
 
   <button class="btn" onclick="saveSettings()" style="margin-bottom:12px">💾 Simpan Pengaturan</button>
+
+  <!-- FIREBASE SETUP -->
+  <div class="section-title" id="firebase-section">☁️ Firebase Database</div>
+  <div class="card" style="margin-bottom:12px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+      <div>
+        <div style="font-size:14px;font-weight:700;color:var(--text)">Status: <span id="fb-status-settings" style="color:var(--text3)">Belum dikonfigurasi</span></div>
+        <div style="font-size:11px;color:var(--text3);margin-top:2px">Data otomatis sync ke cloud & semua device</div>
+      </div>
+    </div>
+    <div style="background:var(--gold-dim);border:1px solid rgba(247,147,26,0.2);border-radius:10px;padding:14px;margin-bottom:14px;font-size:12px;color:var(--text2);line-height:1.7">
+      <b style="color:var(--gold)">📋 Cara Setup Firebase (GRATIS):</b><br>
+      1. Buka <b>console.firebase.google.com</b><br>
+      2. Klik <b>"Add project"</b> → beri nama → Continue<br>
+      3. Klik ikon Web <b>&lt;/&gt;</b> → Register app<br>
+      4. Copy konfigurasi → paste di bawah<br>
+      5. Di Firebase → <b>Authentication</b> → Sign-in method → aktifkan <b>Anonymous</b><br>
+      6. Di Firebase → <b>Firestore Database</b> → Create database → Start in test mode
+    </div>
+    <div class="form-group"><label class="form-label">API Key</label><input type="text" id="fb-apikey" placeholder="AIzaSy..."></div>
+    <div class="form-group"><label class="form-label">Auth Domain</label><input type="text" id="fb-authdomain" placeholder="my-project.firebaseapp.com"></div>
+    <div class="form-group"><label class="form-label">Project ID</label><input type="text" id="fb-projectid" placeholder="my-project-id"></div>
+    <div class="form-group"><label class="form-label">Storage Bucket</label><input type="text" id="fb-storagebucket" placeholder="my-project.appspot.com"></div>
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">Messaging Sender ID</label><input type="number" id="fb-msgid" placeholder="123456789"></div>
+      <div class="form-group"><label class="form-label">App ID</label><input type="text" id="fb-appid" placeholder="1:123:web:abc"></div>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn" onclick="saveFirebaseConfig()" style="flex:1;min-width:140px">💾 Simpan & Aktifkan</button>
+      <button class="btn secondary" onclick="loadFromFirebase()" style="flex:1;min-width:120px">⬇️ Pull dari Cloud</button>
+    </div>
+    <div style="margin-top:10px;font-size:11px;color:var(--text3);text-align:center">
+      Firebase ID Anda: <span id="fb-userid" style="font-family:var(--mono);color:var(--text2)">–</span>
+    </div>
+  </div>
+
   <button class="btn danger" onclick="resetAll()" style="margin-bottom:24px">🗑️ Reset Semua Data</button>
 </div>
 
@@ -2612,6 +2754,22 @@ function getDefaultSettings() {
   };
 }
 
+async function loadFromFirebase() {
+  if (!window.fbLoad || !window._firebaseReady) return;
+  try {
+    const data = await window.fbLoad();
+    if (data && data.bulanan) {
+      window.STATE = { settings: getDefaultSettings(), bulanan: [], ammoLog: [], harian: [], ...data };
+      localStorage.setItem(STORE_KEY, JSON.stringify(window.STATE));
+      if (typeof renderAll === 'function') renderAll();
+      showToast('☁️ Data dimuat dari Firebase!');
+    }
+  } catch(e) { console.warn('Firebase load error', e); }
+}
+
+// Coba load dari Firebase setelah app ready
+setTimeout(() => { if (window._firebaseReady) loadFromFirebase(); else { let t=0; const iv=setInterval(()=>{t++;if(window._firebaseReady||t>20){clearInterval(iv);if(window._firebaseReady)loadFromFirebase();}},500); } }, 1000);
+
 function load() {
   try {
     const raw = localStorage.getItem(STORE_KEY);
@@ -2637,9 +2795,14 @@ function load() {
 
 function save(state) {
   localStorage.setItem(STORE_KEY, JSON.stringify(state));
-  // Auto-push ke Gist jika sudah dikonfigurasi
-  if (localStorage.getItem('gist_token') && localStorage.getItem('gist_id')) {
-    gistPush(false);
+  // Save ke Firebase jika sudah siap
+  if (window.fbSave && window._firebaseReady) {
+    window.fbSave(state).then(ok => {
+      if (ok) {
+        const ind = document.getElementById('fb-sync-indicator');
+        if (ind) { ind.style.opacity='1'; setTimeout(()=>ind.style.opacity='0',1200); }
+      }
+    });
   }
 }
 
@@ -2840,10 +3003,15 @@ function getCurrentPrice() {
 // Jika diberikan, nilai portfolio BARIS TERAKHIR akan dihitung menggunakan harga tsb (harga harian terkini)
 // Semua baris sebelumnya tetap pakai harga bulanan masing-masing (untuk akurasi historis)
 function calcBulananRowsFull(bulanan, ammoLog, settings, overrideCurrentPrice) {
+  // ammoBulan[month] = { totalUsd, totalBtc }
+  // BUG FIX: BTC dari AMMO dihitung pakai harga AMMO masing-masing (a.price),
+  // BUKAN harga DCA bulanan (entryPrice). Ini yg bikin avgPrice tidak berubah.
   const ammoBulan = {};
   for (const a of ammoLog) {
     const m = a.date.slice(0,7);
-    ammoBulan[m] = (ammoBulan[m] || 0) + (a.usd || 0);
+    if (!ammoBulan[m]) ammoBulan[m] = { totalUsd: 0, totalBtc: 0 };
+    ammoBulan[m].totalUsd += (a.usd || 0);
+    ammoBulan[m].totalBtc += (a.price > 0 ? (a.usd || 0) / a.price : 0);
   }
 
   // Harga harian terkini — digunakan untuk row terakhir dan semua kalkulasi real-time
@@ -2858,8 +3026,10 @@ function calcBulananRowsFull(bulanan, ammoLog, settings, overrideCurrentPrice) {
     const entryPrice = row.price || 0; // harga saat DCA dilakukan bulan tsb
     const dca = row.dca || settings.dcaBulanan;
     const btcDCA = entryPrice > 0 ? dca / entryPrice : 0;
-    const ammoUsed = ammoBulan[row.month] || 0;
-    const btcAmmo = entryPrice > 0 ? ammoUsed / entryPrice : 0;
+    const ammoMonthData = ammoBulan[row.month] || { totalUsd: 0, totalBtc: 0 };
+    const ammoUsed = ammoMonthData.totalUsd;
+    // BUG FIX: BTC AMMO dihitung dari harga transaksi masing2, bukan entryPrice
+    const btcAmmo = ammoMonthData.totalBtc;
     const btcBulanIni = btcDCA + btcAmmo;
     const prevAvgPrice = rows.length > 0 ? rows[rows.length-1].avgPrice : 0;
     cumBTC += btcBulanIni;
