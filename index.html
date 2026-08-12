@@ -22,110 +22,160 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
-<!-- Firebase SDK -->
-<script type="module">
-  import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
-  import { getFirestore, doc, setDoc, getDoc, onSnapshot } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
-  import { getAuth, signInAnonymously, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
-
+<!-- Firebase SDK (compat version — works in single HTML file) -->
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script>
+(function() {
   // ══════════════════════════════════════════════
-  // FIREBASE CONFIG — ISI DENGAN CONFIG ANDA
-  // Dapatkan dari: console.firebase.google.com
+  // CONFIG FIREBASE — SUDAH TERPASANG
   // ══════════════════════════════════════════════
   const firebaseConfig = {
-    apiKey: window.FB_API_KEY || "YOUR_API_KEY",
-    authDomain: window.FB_AUTH_DOMAIN || "YOUR_PROJECT.firebaseapp.com",
-    projectId: window.FB_PROJECT_ID || "YOUR_PROJECT_ID",
-    storageBucket: window.FB_STORAGE_BUCKET || "YOUR_PROJECT.appspot.com",
-    messagingSenderId: window.FB_MSG_ID || "YOUR_MSG_ID",
-    appId: window.FB_APP_ID || "YOUR_APP_ID"
+    apiKey: "AIzaSyB_u0DQ5oocnUnWM_ZtxyVkaESYPPofUYc",
+    authDomain: "bitcoin-e6c6e.firebaseapp.com",
+    projectId: "bitcoin-e6c6e",
+    storageBucket: "bitcoin-e6c6e.appspot.com",
+    messagingSenderId: "426986693593",
+    appId: "1:426986693593:web:c33738990f301d21caefc8"
   };
 
-  let db = null, auth = null, userId = null, unsubscribe = null;
+  let db = null, userId = null, _saveTimer = null;
+  window._firebaseReady = false;
+  window._lastSaveTimestamp = 0;
 
-  async function initFirebase() {
+  function updateStatusUI(status, uid) {
+    // Header status
+    const el = document.getElementById('fb-status');
+    if (el) {
+      if (status === 'connected') { el.innerHTML = '☁️ Cloud Aktif'; el.style.color = 'var(--green)'; }
+      else if (status === 'saving') { el.innerHTML = '💾 Menyimpan...'; el.style.color = 'var(--yellow)'; }
+      else if (status === 'saved') { el.innerHTML = '✅ Tersimpan'; el.style.color = 'var(--green)'; setTimeout(()=>{ const e=document.getElementById('fb-status'); if(e){e.innerHTML='☁️ Cloud Aktif';e.style.color='var(--green)';} }, 2000); }
+      else if (status === 'error') { el.innerHTML = '⚠️ Cloud Error'; el.style.color = 'var(--orange)'; }
+      else if (status === 'loading') { el.innerHTML = '⏳ Loading...'; el.style.color = 'var(--text3)'; }
+    }
+    // Settings status
+    const ss = document.getElementById('fb-status-settings');
+    if (ss) {
+      if (status === 'connected' || status === 'saved') ss.textContent = '✅ Aktif & Terhubung';
+      else if (status === 'error') ss.textContent = '❌ Gagal konek';
+      else ss.textContent = '⏳ Menghubungkan...';
+    }
+    // User ID display
+    if (uid) { const uel = document.getElementById('fb-userid'); if(uel) uel.textContent = uid.slice(0,16)+'...'; }
+  }
+
+  async function init() {
+    updateStatusUI('loading');
     try {
-      const app = initializeApp(firebaseConfig);
-      db = getFirestore(app);
-      auth = getAuth(app);
+      if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+      db = firebase.firestore();
+      const auth = firebase.auth();
 
-      await signInAnonymously(auth);
-      onAuthStateChanged(auth, async (user) => {
+      auth.onAuthStateChanged(async (user) => {
         if (user) {
           userId = user.uid;
           window._firebaseUserId = userId;
           window._firebaseReady = true;
-          console.log('[Firebase] Connected. User:', userId);
-          showFirebaseStatus('connected');
-          // Realtime listener
-          startRealtimeSync();
+          updateStatusUI('connected', userId);
+          console.log('[Firebase] ✅ Terhubung. UID:', userId);
+
+          // Load data dari cloud saat pertama connect
+          await cloudLoad();
+
+          // Realtime listener — sync jika ada perubahan dari device lain
+          db.collection('portfolios').doc(userId).onSnapshot((snap) => {
+            if (!snap.exists) return;
+            const data = snap.data();
+            const ts = data._timestamp || 0;
+            // Hanya update jika data dari cloud lebih baru dari save terakhir kita
+            if (ts > window._lastSaveTimestamp + 500) {
+              window._lastSaveTimestamp = ts;
+              const { _timestamp, ...stateData } = data;
+              if (window.STATE && typeof renderAll === 'function') {
+                window.STATE = { ...window.STATE, ...stateData };
+                localStorage.setItem('btctracker_v2', JSON.stringify(window.STATE));
+                renderAll();
+                console.log('[Firebase] 🔄 Sync dari cloud');
+              }
+            }
+          }, err => console.warn('[Firebase] Listener:', err.message));
+
+        } else {
+          await auth.signInAnonymously();
         }
       });
+
     } catch(e) {
-      console.warn('[Firebase] Init failed:', e.message);
-      showFirebaseStatus('error');
+      console.error('[Firebase] Init error:', e);
+      updateStatusUI('error');
     }
   }
 
-  function startRealtimeSync() {
+  async function cloudLoad() {
     if (!db || !userId) return;
-    if (unsubscribe) unsubscribe();
-    const docRef = doc(db, 'portfolios', userId);
-    unsubscribe = onSnapshot(docRef, (snap) => {
-      if (snap.exists()) {
-        const data = snap.data();
-        // Merge ke STATE hanya jika ada perubahan dari device lain
-        if (data._timestamp && window._lastSaveTimestamp && data._timestamp > window._lastSaveTimestamp) {
-          const { _timestamp, ...stateData } = data;
-          window.STATE = { ...window.STATE, ...stateData };
-          if (typeof renderAll === 'function') renderAll();
-          console.log('[Firebase] Data synced from cloud');
-        }
-      }
-    }, (err) => { console.warn('[Firebase] Listener error:', err.message); });
-  }
-
-  window.fbSave = async function(state) {
-    if (!db || !userId) return false;
     try {
-      const ts = Date.now();
-      window._lastSaveTimestamp = ts;
-      await setDoc(doc(db, 'portfolios', userId), { ...state, _timestamp: ts });
-      return true;
-    } catch(e) {
-      console.warn('[Firebase] Save failed:', e.message);
-      return false;
-    }
-  };
-
-  window.fbLoad = async function() {
-    if (!db || !userId) return null;
-    try {
-      const snap = await getDoc(doc(db, 'portfolios', userId));
-      if (snap.exists()) {
+      const snap = await db.collection('portfolios').doc(userId).get();
+      if (snap.exists) {
         const { _timestamp, ...data } = snap.data();
-        return data;
+        if (data.bulanan && data.bulanan.length > 0) {
+          // Gabungkan: cloud data menang untuk bulanan/ammoLog/harian/settings
+          // Tapi jangan timpa kalau localStorage lebih baru
+          const localRaw = localStorage.getItem('btctracker_v2');
+          const localTs = localRaw ? (JSON.parse(localRaw)._ts || 0) : 0;
+          if (!_timestamp || _timestamp >= localTs) {
+            window.STATE = { settings: window.STATE?.settings || {}, bulanan: [], ammoLog: [], harian: [], ...data };
+            localStorage.setItem('btctracker_v2', JSON.stringify(window.STATE));
+            window._lastSaveTimestamp = _timestamp || 0;
+            if (typeof renderAll === 'function') renderAll();
+            console.log('[Firebase] 📥 Data dimuat dari cloud');
+            // Show toast
+            setTimeout(() => { if(typeof toast==='function') toast('☁️ Data dimuat dari Firebase!'); }, 500);
+          }
+        }
+      } else {
+        // Tidak ada data di cloud, upload localStorage ke cloud
+        if (window.STATE) window.fbSave(window.STATE);
       }
-      return null;
     } catch(e) {
-      console.warn('[Firebase] Load failed:', e.message);
-      return null;
-    }
-  };
-
-  function showFirebaseStatus(status) {
-    const el = document.getElementById('fb-status');
-    if (!el) return;
-    if (status === 'connected') {
-      el.innerHTML = '☁️ Firebase Aktif';
-      el.style.color = 'var(--green)';
-    } else if (status === 'error') {
-      el.innerHTML = '⚠️ Firebase Off';
-      el.style.color = 'var(--yellow)';
+      console.warn('[Firebase] Load error:', e.message);
     }
   }
 
-  initFirebase();
+  // ── PUBLIC API ──
+  window.fbSave = function(state) {
+    if (!db || !userId) return;
+    // Debounce: tunggu 800ms setelah save terakhir sebelum kirim ke Firebase
+    clearTimeout(_saveTimer);
+    _saveTimer = setTimeout(async () => {
+      try {
+        updateStatusUI('saving');
+        const ts = Date.now();
+        window._lastSaveTimestamp = ts;
+        const payload = { ...state, _timestamp: ts };
+        await db.collection('portfolios').doc(userId).set(payload);
+        updateStatusUI('saved');
+        console.log('[Firebase] 💾 Tersimpan ke cloud');
+      } catch(e) {
+        console.warn('[Firebase] Save error:', e.message);
+        updateStatusUI('error');
+      }
+    }, 800);
+  };
+
+  window.fbManualLoad = async function() {
+    if (!window._firebaseReady) { if(typeof toast==='function') toast('⏳ Firebase belum siap'); return; }
+    await cloudLoad();
+    if(typeof toast==='function') toast('☁️ Data berhasil dimuat dari cloud!');
+  };
+
+  // Start Firebase
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+})();
 </script>
 
 <style>
@@ -1758,7 +1808,10 @@
       <span class="theme-toggle-icon sun">&#9788;</span>
     </div>
     <div class="notif-bell" id="notif-bell-btn" onclick="toggleNotifPanel()" title="Notifikasi">🔔<div class="notif-badge" id="notif-badge" style="display:none">0</div></div>
-    <div class="header-pnl" id="headerPnl" style="color:var(--text3)">–</div>
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:1px">
+      <div class="header-pnl" id="headerPnl" style="color:var(--text3)">–</div>
+      <div id="fb-status" style="font-size:9px;color:var(--text3);letter-spacing:0.3px;font-weight:600">⏳ Firebase...</div>
+    </div>
   </div>
   </div>
 </div>
@@ -2522,38 +2575,29 @@
 
   <button class="btn" onclick="saveSettings()" style="margin-bottom:12px">💾 Simpan Pengaturan</button>
 
-  <!-- FIREBASE SETUP -->
+  <!-- FIREBASE STATUS -->
   <div class="section-title" id="firebase-section">☁️ Firebase Database</div>
   <div class="card" style="margin-bottom:12px;">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
       <div>
-        <div style="font-size:14px;font-weight:700;color:var(--text)">Status: <span id="fb-status-settings" style="color:var(--text3)">Belum dikonfigurasi</span></div>
-        <div style="font-size:11px;color:var(--text3);margin-top:2px">Data otomatis sync ke cloud & semua device</div>
+        <div style="font-size:14px;font-weight:700;color:var(--text)">Status: <span id="fb-status-settings" style="color:var(--text3)">Menghubungkan...</span></div>
+        <div style="font-size:11px;color:var(--text3);margin-top:2px">Data otomatis sync ke cloud setiap ada perubahan</div>
       </div>
+      <div style="width:40px;height:40px;border-radius:50%;background:var(--gold-dim);display:flex;align-items:center;justify-content:center;font-size:20px">☁️</div>
     </div>
-    <div style="background:var(--gold-dim);border:1px solid rgba(247,147,26,0.2);border-radius:10px;padding:14px;margin-bottom:14px;font-size:12px;color:var(--text2);line-height:1.7">
-      <b style="color:var(--gold)">📋 Cara Setup Firebase (GRATIS):</b><br>
-      1. Buka <b>console.firebase.google.com</b><br>
-      2. Klik <b>"Add project"</b> → beri nama → Continue<br>
-      3. Klik ikon Web <b>&lt;/&gt;</b> → Register app<br>
-      4. Copy konfigurasi → paste di bawah<br>
-      5. Di Firebase → <b>Authentication</b> → Sign-in method → aktifkan <b>Anonymous</b><br>
-      6. Di Firebase → <b>Firestore Database</b> → Create database → Start in test mode
-    </div>
-    <div class="form-group"><label class="form-label">API Key</label><input type="text" id="fb-apikey" placeholder="AIzaSy..."></div>
-    <div class="form-group"><label class="form-label">Auth Domain</label><input type="text" id="fb-authdomain" placeholder="my-project.firebaseapp.com"></div>
-    <div class="form-group"><label class="form-label">Project ID</label><input type="text" id="fb-projectid" placeholder="my-project-id"></div>
-    <div class="form-group"><label class="form-label">Storage Bucket</label><input type="text" id="fb-storagebucket" placeholder="my-project.appspot.com"></div>
-    <div class="form-row">
-      <div class="form-group"><label class="form-label">Messaging Sender ID</label><input type="number" id="fb-msgid" placeholder="123456789"></div>
-      <div class="form-group"><label class="form-label">App ID</label><input type="text" id="fb-appid" placeholder="1:123:web:abc"></div>
+    <div style="background:var(--green-dim);border:1px solid rgba(0,229,160,0.2);border-radius:10px;padding:14px;margin-bottom:14px;font-size:12px;color:var(--text2);line-height:1.8">
+      <b style="color:var(--green)">✅ Firebase sudah terpasang & aktif</b><br>
+      • Data tersimpan otomatis ke cloud setiap ada input<br>
+      • Bisa dibuka dari HP manapun dengan URL yang sama<br>
+      • Realtime sync — perubahan langsung tersimpan<br>
+      • Project: <span style="font-family:var(--mono);color:var(--gold)">bitcoin-e6c6e</span>
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
-      <button class="btn" onclick="saveFirebaseConfig()" style="flex:1;min-width:140px">💾 Simpan & Aktifkan</button>
-      <button class="btn secondary" onclick="loadFromFirebase()" style="flex:1;min-width:120px">⬇️ Pull dari Cloud</button>
+      <button class="btn" onclick="window.fbManualLoad&&window.fbManualLoad()" style="flex:1;min-width:140px">⬇️ Pull dari Cloud</button>
+      <button class="btn secondary" onclick="if(window.STATE&&window.fbSave){window.fbSave(window.STATE);if(typeof toast==='function')toast('💾 Data di-push ke cloud!');}" style="flex:1;min-width:120px">⬆️ Push ke Cloud</button>
     </div>
-    <div style="margin-top:10px;font-size:11px;color:var(--text3);text-align:center">
-      Firebase ID Anda: <span id="fb-userid" style="font-family:var(--mono);color:var(--text2)">–</span>
+    <div style="margin-top:12px;font-size:11px;color:var(--text3);text-align:center">
+      Firebase User ID: <span id="fb-userid" style="font-family:var(--mono);color:var(--text2);font-size:10px">–</span>
     </div>
   </div>
 
@@ -2795,14 +2839,9 @@ function load() {
 
 function save(state) {
   localStorage.setItem(STORE_KEY, JSON.stringify(state));
-  // Save ke Firebase jika sudah siap
-  if (window.fbSave && window._firebaseReady) {
-    window.fbSave(state).then(ok => {
-      if (ok) {
-        const ind = document.getElementById('fb-sync-indicator');
-        if (ind) { ind.style.opacity='1'; setTimeout(()=>ind.style.opacity='0',1200); }
-      }
-    });
+  // Save ke Firebase — fbSave sudah debounced, aman dipanggil sering
+  if (typeof window.fbSave === 'function') {
+    window.fbSave(state);
   }
 }
 
