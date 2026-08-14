@@ -23,11 +23,25 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <!-- Firebase SDK (compat version — works in single HTML file) -->
-<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js" onerror="console.error('Firebase app-compat failed to load')"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
 <script>
 (function() {
+  // Wait for Firebase SDK to be available (handles async loading race condition)
+  function waitForFirebase(callback, attempts) {
+    attempts = attempts || 0;
+    if (typeof firebase !== 'undefined' && firebase.apps !== undefined) {
+      callback();
+    } else if (attempts < 20) {
+      setTimeout(() => waitForFirebase(callback, attempts + 1), 300);
+    } else {
+      console.error('[Firebase] SDK tidak berhasil dimuat setelah 6 detik');
+      const el = document.getElementById('fb-status');
+      if (el) { el.innerHTML = '⚠️ SDK Error'; el.style.color = 'var(--orange)'; }
+    }
+  }
+
   const firebaseConfig = {
     apiKey: "AIzaSyB_u0DQ5oocnUnWM_ZtxyVkaESYPPofUYc",
     authDomain: "bitcoin-e6c6e.firebaseapp.com",
@@ -191,11 +205,14 @@
     if(typeof toast==='function') toast('☁️ Data berhasil dimuat dari cloud!');
   };
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
-  } else {
-    init();
+  function startApp() {
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', () => waitForFirebase(init));
+    } else {
+      waitForFirebase(init);
+    }
   }
+  startApp();
 })();
 </script>
 
@@ -1184,6 +1201,14 @@
   .cycle-ind-score { font-family: var(--mono); font-size: 18px; font-weight: 500; }
   .cycle-ind-status { font-size: 10px; color: var(--text3); margin-top: 2px; }
   .cycle-input-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+  details#cycle-manual-override summary::-webkit-details-marker { display: none; }
+  details#cycle-manual-override summary { list-style: none; }
+  details#cycle-manual-override[open] summary { margin-bottom: 4px; }
+  .metric-mini-card { background: var(--card); border: 1px solid var(--border2); border-radius: 10px; padding: 10px; cursor: pointer; transition: border-color 0.2s; }
+  .metric-mini-card:hover { border-color: var(--gold); }
+  .metric-mini-name { font-size: 9.5px; color: var(--text3); font-weight: 700; letter-spacing: 0.3px; text-transform: uppercase; margin-bottom: 4px; }
+  .metric-mini-val { font-family: var(--mono); font-size: 16px; font-weight: 500; }
+  .metric-mini-status { font-size: 9px; margin-top: 3px; }
   .cycle-input-label { font-size: 12px; color: var(--text2); flex: 1; font-weight: 500; }
   .cycle-input-field { width: 90px; text-align: right; padding: 8px 10px; font-size: 13px; }
 
@@ -1765,6 +1790,12 @@
 
   [data-theme="light"] .perf-overview-card { box-shadow: 0 2px 16px rgba(0,0,0,0.06); }
 
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.8); }
+}
+
 </style>
 <script>
 // Apply saved theme immediately to avoid flash
@@ -1831,6 +1862,9 @@
     </div>
     <div class="notif-bell" id="notif-bell-btn" onclick="toggleNotifPanel()" title="Notifikasi">🔔<div class="notif-badge" id="notif-badge" style="display:none">0</div></div>
     <div style="display:flex;flex-direction:column;align-items:flex-end;gap:1px">
+      <div id="live-price-ticker" style="font-size:10px;margin-bottom:2px;text-align:right">
+        <span style="color:var(--text3)">⏳ Memuat...</span>
+      </div>
       <div class="header-pnl" id="headerPnl" style="color:var(--text3)">–</div>
       <div id="fb-status" style="font-size:9px;color:var(--text3);letter-spacing:0.3px;font-weight:600">⏳ Firebase...</div>
     </div>
@@ -1900,6 +1934,23 @@
       <div class="stat"><div class="stat-label">Harga BTC Terkini</div><div class="stat-value cyan" id="d-hargaharian">–</div></div>
       <div class="stat"><div class="stat-label">P&L (%) Live</div><div class="stat-value" id="d-pnlpct-live">–</div></div>
     </div>
+  </div>
+
+  <div style="display:flex;align-items:center;justify-content:space-between;margin:22px 0 10px">
+    <div class="section-title" style="margin:0">Harga BTC Live</div>
+    <button onclick="refreshLivePrice()" style="background:none;border:1px solid var(--border2);border-radius:6px;color:var(--text3);font-size:10px;padding:4px 10px;cursor:pointer;font-family:var(--sans)">🔄 Refresh</button>
+  </div>
+  <div class="card" id="live-price-card" style="padding:16px">
+    <div style="text-align:center;padding:20px;color:var(--text3);font-size:12px">⏳ Memuat harga live...</div>
+  </div>
+
+
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-top:20px;margin-bottom:10px">
+    <div class="section-title" style="margin:0">On-Chain Health</div>
+    <a onclick="showTab('cycle')" style="font-size:10px;color:var(--gold);cursor:pointer;text-decoration:none">Lihat Detail &#8594;</a>
+  </div>
+  <div id="dash-onchain-card" class="card" style="padding:14px;margin-bottom:12px">
+    <div style="text-align:center;padding:12px;color:var(--text3);font-size:12px">Memuat data on-chain...</div>
   </div>
 
   <div class="section-title">Sinyal Hari Ini</div>
@@ -2197,6 +2248,36 @@
 
 <!-- ══════════════ HARGA HARIAN ══════════════ -->
 <div class="page" id="page-harian">
+
+  <div class="section-title">Harga BTC Real-Time</div>
+  <div class="chart-card" id="realtime-price-card">
+    <div class="chart-header">
+      <div>
+        <div class="chart-title">Bitcoin · BTC/USD</div>
+        <div class="chart-subtitle" id="rt-subtitle">Menghubungkan ke sumber harga...</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px">
+        <span id="rt-live-dot" style="width:7px;height:7px;border-radius:50%;background:var(--green);display:inline-block;animation:pulse-dot 2s infinite"></span>
+        <span style="font-size:10px;color:var(--text3);font-weight:700;letter-spacing:1.5px">LIVE</span>
+      </div>
+    </div>
+
+    <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap">
+      <div id="rt-price-usd" style="font-family:var(--mono);font-size:34px;font-weight:700;color:var(--gold);letter-spacing:-0.5px;transition:color 0.5s ease">–</div>
+      <div id="rt-change-badge" style="font-size:11px;font-weight:700;padding:3px 9px;border-radius:20px;display:none"></div>
+    </div>
+    <div id="rt-price-idr" style="font-family:var(--mono);font-size:13px;color:var(--text2);margin-top:2px;margin-bottom:14px">–</div>
+
+    <div class="chart-container" style="height:180px">
+      <canvas id="chartRealtime"></canvas>
+    </div>
+
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-top:12px">
+      <span id="rt-updated" style="font-size:10px;color:var(--text3)">Update terakhir: –</span>
+      <button onclick="refreshLivePrice()" style="background:none;border:1px solid var(--border2);border-radius:6px;color:var(--text3);font-size:10px;padding:4px 10px;cursor:pointer;font-family:var(--sans)">🔄 Refresh</button>
+    </div>
+  </div>
+
   <div class="section-title">Tambah Harga Hari Ini</div>
   <div class="card">
     <div class="form-row">
@@ -2367,30 +2448,70 @@
     </div>
     <hr class="divider">
     <div class="form-group">
-      <label class="form-label">Target Return Per Bulan (%)</label>
+      <label class="form-label">Asumsi Return BTC per Bulan (%)</label>
       <input type="number" id="rec-target" placeholder="Contoh: 10" step="0.1" value="10">
     </div>
-    <button class="btn secondary" onclick="calcRecovery()">🔄 Hitung Estimasi Recovery</button>
+    <button class="btn secondary" onclick="calcRecovery()">📊 Hitung Skenario Recovery</button>
     <div id="recovery-time-result" style="margin-top:12px"></div>
   </div>
 
   <div class="section-title">Drawdown Tracker</div>
+
+  <details class="card" style="padding:12px;margin-bottom:12px">
+    <summary style="cursor:pointer;font-size:12px;font-weight:700;color:var(--text2)">📘 Cara Membaca & Menggunakan Drawdown Tracker Ini</summary>
+    <div style="margin-top:10px;font-size:11px;color:var(--text2);line-height:1.7">
+      Ada <b style="color:var(--text)">dua drawdown berbeda</b> yang sengaja dipisah di sini, karena keduanya punya arti berbeda untuk strategi DCA:<br><br>
+      <b style="color:var(--gold)">1) Drawdown Portfolio (dari ATH nilai portfolio)</b> — mengukur seberapa jauh <i>total nilai</i> portfolio Anda turun dari titik tertinggi yang pernah dicapai. Berguna untuk melihat risiko psikologis / mark-to-market, tapi bisa menyesatkan karena ATH portfolio terus naik seiring Anda menambah modal (DCA).<br><br>
+      <b style="color:var(--blue)">2) Drawdown dari Avg. Buy Price (harga rata-rata beli Anda)</b> — mengukur posisi harga BTC saat ini <i>relatif terhadap modal rata-rata Anda</i>. Inilah metrik yang sebenarnya menentukan apakah Anda profit/rugi secara riil, dan inilah yang dipakai sinyal AMMO Buy / Exit Strategy di bagian lain aplikasi ini.<br><br>
+      <b style="color:var(--text)">Cara pakai untuk manajemen risiko profesional:</b>
+      <ul style="margin:6px 0 0 16px;padding:0">
+        <li>Drawdown 0% s/d -10% dari avg: normal, lanjutkan DCA rutin.</li>
+        <li>-10% s/d -20%: mulai waspada, cek sinyal AMMO L1.</li>
+        <li>-20% s/d -30%: zona akumulasi agresif (AMMO L2), sesuai toleransi risiko.</li>
+        <li>&gt; -30%: zona ekstrem — evaluasi ulang alokasi modal, jangan all-in tanpa cadangan dana darurat.</li>
+      </ul>
+      Semua angka di bawah otomatis terhubung dengan data DCA Bulanan, AMMO Buy Log, dan Avg. Buy Price di Dashboard — tidak perlu input ulang.
+    </div>
+  </details>
+
+  <div class="card" style="margin-bottom:12px">
+    <div class="stat-label" style="margin-bottom:6px">Drawdown dari Avg. Buy Price (DCA) <span style="font-weight:400;color:var(--text3)">· metrik utama</span></div>
+    <div class="stat-grid" style="margin-bottom:0">
+      <div class="stat"><div class="stat-label">Avg. Buy Price</div><div class="stat-value" id="dd-avgbuy">$0</div></div>
+      <div class="stat"><div class="stat-label">Harga Sekarang</div><div class="stat-value gold" id="dd-price-now">$0</div></div>
+      <div class="stat"><div class="stat-label">DD dari Avg Buy</div><div class="stat-value" id="dd-avg-pct">0%</div></div>
+      <div class="stat"><div class="stat-label">Zona AMMO Aktif</div><div class="stat-value" id="dd-ammo-zone" style="font-size:13px">–</div></div>
+    </div>
+  </div>
+
   <div class="card">
+    <div class="stat-label" style="margin-bottom:6px">Drawdown Portfolio (dari ATH Nilai)</div>
     <div class="stat-grid" style="margin-bottom:12px">
-      <div class="stat"><div class="stat-label">ATH Portfolio</div><div class="stat-value gold" id="dd-ath">$0</div></div>
+      <div class="stat">
+        <div class="stat-label">ATH Portfolio</div>
+        <div class="stat-value gold" id="dd-ath">$0</div>
+        <div style="font-size:10px;color:var(--text3);margin-top:2px" id="dd-ath-info"></div>
+      </div>
       <div class="stat"><div class="stat-label">Nilai Sekarang</div><div class="stat-value" id="dd-current">$0</div></div>
-      <div class="stat"><div class="stat-label">Max Drawdown</div><div class="stat-value red" id="dd-max">0%</div></div>
+      <div class="stat"><div class="stat-label">Max Drawdown (historis)</div><div class="stat-value red" id="dd-max">0%</div></div>
       <div class="stat"><div class="stat-label">Current DD</div><div class="stat-value" id="dd-current-pct">0%</div></div>
+    </div>
+    <div class="stat-grid stat-grid-3" style="margin-bottom:12px">
+      <div class="stat"><div class="stat-label">Durasi DD Saat Ini</div><div class="stat-value" id="dd-months-current">0 bln</div></div>
+      <div class="stat"><div class="stat-label">DD Terpanjang (historis)</div><div class="stat-value" id="dd-months-longest">0 bln</div></div>
+      <div class="stat"><div class="stat-label">Butuh Kenaikan Recovery</div><div class="stat-value" id="dd-recovery-need">0%</div></div>
     </div>
     <div class="dd-gauge-wrap">
       <div class="dd-gauge-fill" id="dd-gauge-fill" style="width:0%"></div>
     </div>
-    <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text3);margin-bottom:14px">
+    <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text3);margin-bottom:8px">
       <span>0% (ATH)</span><span>25%</span><span>50%</span><span>75%+</span>
     </div>
+    <div id="dd-extra-info" style="font-size:11px;margin-bottom:10px;min-height:16px"></div>
     <div class="chart-container" style="height:140px">
       <canvas id="chartDrawdown"></canvas>
     </div>
+    <div id="dd-zone-legend" style="display:flex;gap:10px;flex-wrap:wrap;font-size:9px;color:var(--text3);margin-top:8px"></div>
   </div>
 
 </div>
@@ -2398,52 +2519,70 @@
 <!-- ══════════════ CYCLE DASHBOARD ══════════════ -->
 <div class="page" id="page-cycle">
 
-  <div class="section-title">Input Indikator Siklus</div>
-  <div class="card">
-    <div class="cycle-input-row">
-      <div>
-        <div class="cycle-input-label">Fear & Greed Index</div>
-        <div style="font-size:10px;color:var(--text3)">0-100 (CNN F&G Index)</div>
-      </div>
-      <input class="cycle-input-field" type="number" id="ci-fg" placeholder="25" min="0" max="100" oninput="renderCycle()">
-    </div>
-    <div class="cycle-input-row">
-      <div>
-        <div class="cycle-input-label">MVRV Z-Score</div>
-        <div style="font-size:10px;color:var(--text3)">On-chain valuation metric</div>
-      </div>
-      <input class="cycle-input-field" type="number" id="ci-mvrv" placeholder="1.1" step="0.01" oninput="renderCycle()">
-    </div>
-    <div class="cycle-input-row">
-      <div>
-        <div class="cycle-input-label">NUPL</div>
-        <div style="font-size:10px;color:var(--text3)">Net Unrealized Profit/Loss</div>
-      </div>
-      <input class="cycle-input-field" type="number" id="ci-nupl" placeholder="0.28" step="0.01" oninput="renderCycle()">
-    </div>
-    <hr class="divider" style="margin:10px 0">
-    <div class="cycle-input-row">
-      <div>
-        <div class="cycle-input-label">Puell Multiple</div>
-        <div style="font-size:10px;color:var(--text3)">Miner revenue metric (opsional)</div>
-      </div>
-      <input class="cycle-input-field" type="number" id="ci-puell" placeholder="0.8" step="0.01" oninput="renderCycle()">
-    </div>
-    <div style="font-size:10px;color:var(--text3);text-align:right;margin-top:4px">
-      * Simpan input otomatis
-    </div>
+  <div class="section-title">BTC Cycle Health</div>
+  <div class="card" id="cycle-fetch-status" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+    <div style="font-size:11px;color:var(--text3)" id="cycle-fetch-status-text">Memuat data indikator...</div>
+    <button onclick="refreshCycleData(true)" style="background:none;border:1px solid var(--border2);border-radius:6px;color:var(--text3);font-size:10px;padding:5px 10px;cursor:pointer;font-family:var(--sans)" id="cycle-refresh-btn">🔄 Refresh</button>
   </div>
 
-  <div class="section-title">BTC Cycle Score</div>
   <div id="cycle-score-display">
-    <div class="card" style="text-align:center;color:var(--text3);padding:20px;font-size:13px">Masukkan nilai indikator di atas</div>
+    <div class="card" style="text-align:center;color:var(--text3);padding:20px;font-size:13px">Memuat indikator...</div>
   </div>
 
-  <div class="section-title">Detail Indikator</div>
+  <div class="section-title">Detail Indikator (Bobot Skor)</div>
   <div id="cycle-indicators-detail"></div>
 
   <div class="section-title">Rekomendasi</div>
   <div id="cycle-recommendation"></div>
+
+  <details class="card" style="padding:12px" id="cycle-manual-override" open>
+    <summary style="cursor:pointer;font-size:12px;font-weight:700;color:var(--text2)">⚙️ Input Manual / Override — Isi jika API tidak otomatis terisi</summary>
+    <div style="margin-top:12px">
+      <div style="background:var(--blue-dim);border-left:2px solid var(--blue);border-radius:0 6px 6px 0;padding:8px 10px;font-size:10px;color:var(--text2);line-height:1.6;margin-bottom:12px">
+        💡 Jika MVRV / NUPL / Puell masih "–", isi manual di sini. Nilai referensi saat ini (Mei 2026):<br>
+        <b style="color:var(--gold)">MVRV Z-Score ≈ 0.41 · NUPL ≈ 0.28 · Puell ≈ 0.7–1.2</b> — jauh dari top cycle.<br>
+        Sumber: <a href="https://www.lookintobitcoin.com/charts/mvrv-zscore/" target="_blank" style="color:var(--blue)">LookIntoBitcoin</a> · 
+        <a href="https://charts.bitbo.io/nupl/" target="_blank" style="color:var(--blue)">Bitbo NUPL</a> · 
+        <a href="https://charts.bitbo.io/puell-multiple/" target="_blank" style="color:var(--blue)">Bitbo Puell</a>
+      </div>
+      <div class="cycle-input-row">
+        <div>
+          <div class="cycle-input-label">Fear & Greed Index</div>
+          <div style="font-size:10px;color:var(--text3)">0–100 · Sumber: <a href="https://alternative.me/crypto/fear-and-greed-index/" target="_blank" style="color:var(--blue)">alternative.me</a></div>
+        </div>
+        <input class="cycle-input-field" type="number" id="ci-fg" placeholder="29" min="0" max="100" oninput="this.dataset.auto='';renderCycle()">
+      </div>
+      <div class="cycle-input-row">
+        <div>
+          <div class="cycle-input-label">MVRV Z-Score</div>
+          <div style="font-size:10px;color:var(--text3)">Rentang normal: -2 s/d 7 · Referensi Mei 2026 ≈ 0.41</div>
+        </div>
+        <input class="cycle-input-field" type="number" id="ci-mvrv" placeholder="0.41" step="0.01" oninput="this.dataset.auto='';renderCycle()">
+      </div>
+      <div class="cycle-input-row">
+        <div>
+          <div class="cycle-input-label">NUPL</div>
+          <div style="font-size:10px;color:var(--text3)">Rentang: -0.5 s/d 1 · Referensi Mei 2026 ≈ 0.28</div>
+        </div>
+        <input class="cycle-input-field" type="number" id="ci-nupl" placeholder="0.28" step="0.01" oninput="this.dataset.auto='';renderCycle()">
+      </div>
+      <hr class="divider" style="margin:10px 0">
+      <div class="cycle-input-row">
+        <div>
+          <div class="cycle-input-label">Puell Multiple</div>
+          <div style="font-size:10px;color:var(--text3)">Rentang normal: 0.3 s/d 4 · Referensi Mei 2026 ≈ 0.8</div>
+        </div>
+        <input class="cycle-input-field" type="number" id="ci-puell" placeholder="0.80" step="0.01" oninput="this.dataset.auto='';renderCycle()">
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px">
+        <div style="font-size:10px;color:var(--text3)">* Isi manual akan menimpa data otomatis API</div>
+        <button onclick="clearCycleManualInputs()" style="background:none;border:1px solid var(--border2);border-radius:6px;color:var(--text3);font-size:10px;padding:4px 10px;cursor:pointer;font-family:var(--sans)">Reset</button>
+      </div>
+    </div>
+  </details>
+
+  <div class="section-title">Metrik On-Chain Lainnya <span style="font-size:9px;color:var(--text3);font-weight:400">· info saja, tidak memengaruhi skor</span></div>
+  <div id="cycle-metrics-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px"></div>
 
   <div class="section-title">Days Until Next Halving</div>
   <div class="card" id="cycle-halving-card">
@@ -2464,6 +2603,14 @@
     <div style="font-size:11px;color:var(--text3);margin-top:6px">Halving terakhir: 19 April 2024 · Berikutnya: ~April 2028</div>
   </div>
 
+</div>
+
+<!-- Modal detail metrik on-chain -->
+<div id="metric-detail-overlay" onclick="if(event.target===this) closeMetricDetail()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:999;align-items:center;justify-content:center;padding:16px">
+  <div style="background:var(--card);border:1px solid var(--border2);border-radius:14px;padding:20px;max-width:360px;width:100%;max-height:80vh;overflow-y:auto">
+    <div id="metric-detail-body"></div>
+    <button onclick="closeMetricDetail()" style="margin-top:14px;width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;color:var(--text2);padding:10px;cursor:pointer;font-family:var(--sans);font-size:12px">Tutup</button>
+  </div>
 </div>
 
 <!-- ══════════════ PENGATURAN ══════════════ -->
@@ -2503,6 +2650,18 @@
         <input type="checkbox" id="toggle-sidebar" onchange="toggleSidebarPref()" style="width:auto;accent-color:var(--gold)" checked>
         <span style="font-size:12px;color:var(--text3)">Tampilkan</span>
       </label>
+    </div>
+  </div>
+
+  <div class="section-title">API BTC Cycle Health</div>
+  <div class="settings-group">
+    <div class="settings-group-title">BGeometrics Token (opsional)</div>
+    <div class="settings-row">
+      <div>
+        <div class="settings-row-label">API Token</div>
+        <div class="settings-row-desc">Kosongkan jika tidak punya. Daftar gratis di bgeometrics.com untuk limit lebih longgar (default 10x/jam, 15x/hari).</div>
+      </div>
+      <input class="settings-row-input" type="text" id="s-bg-token" placeholder="(opsional)" style="max-width:140px" oninput="saveBgToken()">
     </div>
   </div>
 
@@ -3055,6 +3214,13 @@ let STATE = load();
 // ============================================================
 // ── Selalu ambil harga harian terbaru sebagai harga referensi saat ini ──
 function getCurrentPrice() {
+  // Prioritas 1: harga LIVE real-time (dari CoinGecko/Binance/Coinbase/Kraken),
+  // supaya P&L, portfolio value, sinyal exit, dsb otomatis update tanpa perlu input manual.
+  if (typeof window !== 'undefined' && window._livePrice && window._livePrice.usd > 0) {
+    return window._livePrice.usd;
+  }
+  // Prioritas 2 (fallback): harga harian terakhir yang diinput manual —
+  // dipakai hanya jika harga live belum berhasil dimuat sama sekali.
   if (!STATE.harian || STATE.harian.length === 0) return 0;
   const sorted = STATE.harian.slice().sort((a, b) => b.date.localeCompare(a.date));
   return sorted[0] ? sorted[0].price : 0;
@@ -3996,46 +4162,91 @@ function renderRecovery() {
     return;
   }
 
-  const { avgPrice, cumModal, cumBTC, portVal, pnl } = latest;
+  const { avgPrice, cumModal, cumBTC, portVal, pnl, pnlPct } = latest;
   const currentPrice = getCurrentPrice() || 0;
   const isProfit = pnl >= 0;
 
+  // Hitung ATH portfolio dari semua rows
+  const currentPriceForCalc = getCurrentPrice();
+  const rows = calcBulananRowsFull(STATE.bulanan, STATE.ammoLog, STATE.settings, currentPriceForCalc);
+  const portVals = rows.map(r => r.portVal);
+  const athVal = portVals.length > 0 ? Math.max(...portVals) : 0;
+  const athIdx = portVals.indexOf(athVal);
+  const athMonth = rows[athIdx] ? rows[athIdx].month : null;
+
+  // Drawdown dari ATH portfolio
+  const ddFromATH = athVal > 0 ? (portVal - athVal) / athVal * 100 : 0;
+  const isInDrawdown = ddFromATH < -0.5; // threshold 0.5% untuk noise
+
+  // Days in drawdown (estimasi: dari bulan ATH ke sekarang)
+  let monthsInDD = 0;
+  if (athIdx >= 0 && athIdx < rows.length - 1) {
+    monthsInDD = rows.length - 1 - athIdx;
+  }
+
+  // Break even dari avg price
+  const needPctBE = currentPrice > 0 && avgPrice > 0 ? ((avgPrice - currentPrice) / currentPrice) * 100 : 0;
+  // Recovery dari ATH portfolio: butuh naik berapa % dari nilai sekarang
+  const needPctATH = athVal > 0 && portVal > 0 ? ((athVal - portVal) / portVal) * 100 : 0;
+
   let html = '';
+
+  // ── Status utama ──
   if (!isProfit && currentPrice > 0 && avgPrice > 0) {
-    const needPct = ((avgPrice - currentPrice) / currentPrice) * 100;
-    const bePrice = avgPrice;
-    html = `
+    // Masih di bawah avg price (rugi)
+    html += `
       <div class="recovery-highlight">
-        <div class="recovery-highlight-pct">+${needPct.toFixed(2)}%</div>
-        <div class="recovery-highlight-label">Kenaikan yang dibutuhkan untuk Break Even</div>
-      </div>
-      <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)">
-        <span style="font-size:12px;color:var(--text3)">Break Even Price</span>
-        <span style="font-family:var(--mono);font-size:14px;color:var(--gold)">$${fNum(bePrice)}</span>
-      </div>
-      <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)">
-        <span style="font-size:12px;color:var(--text3)">Harga Saat Ini</span>
-        <span style="font-family:var(--mono);font-size:14px;color:var(--red)">$${fNum(currentPrice)}</span>
-      </div>
-      <div style="display:flex;justify-content:space-between;padding:8px 0">
-        <span style="font-size:12px;color:var(--text3)">Avg. Buy Price</span>
-        <span style="font-family:var(--mono);font-size:14px;color:var(--text)">$${fNum(avgPrice)}</span>
+        <div class="recovery-highlight-pct">+${needPctBE.toFixed(2)}%</div>
+        <div class="recovery-highlight-label">Kenaikan BTC yang dibutuhkan untuk Break Even (avg price)</div>
       </div>`;
   } else if (isProfit) {
-    html = `
+    html += `
       <div class="recovery-highlight" style="background:rgba(34,211,165,0.07);border-color:rgba(34,211,165,0.2)">
         <div class="recovery-highlight-pct" style="color:var(--green)">✅ Break Even Tercapai!</div>
-        <div class="recovery-highlight-label">Portfolio kamu saat ini dalam kondisi profit</div>
-      </div>
-      <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)">
-        <span style="font-size:12px;color:var(--text3)">Harga Sekarang vs Avg</span>
-        <span style="font-family:var(--mono);font-size:14px;color:var(--green)">${currentPrice && avgPrice ? '+' + (((currentPrice-avgPrice)/avgPrice)*100).toFixed(2) + '%' : '–'}</span>
+        <div class="recovery-highlight-label">Portfolio dalam kondisi profit terhadap modal</div>
       </div>`;
-  } else {
-    html = '<div style="text-align:center;color:var(--text3);font-size:13px;padding:16px">Tambah data harian terbaru</div>';
   }
+
+  // ── Drawdown dari ATH portfolio ──
+  if (isInDrawdown && athVal > 0) {
+    html += `
+      <div style="background:rgba(244,83,106,0.07);border:1px solid rgba(244,83,106,0.2);border-radius:var(--radius-sm);padding:12px;margin-bottom:10px;text-align:center">
+        <div style="font-family:var(--mono);font-size:22px;font-weight:500;color:var(--red)">${ddFromATH.toFixed(2)}%</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:3px">Drawdown dari ATH Portfolio${athMonth ? ' (' + fMonth(athMonth) + ')' : ''}</div>
+        ${monthsInDD > 0 ? `<div style="font-size:10px;color:var(--text3);margin-top:2px">~${monthsInDD} bulan dalam drawdown · Butuh +${needPctATH.toFixed(2)}% untuk recovery ATH</div>` : ''}
+      </div>`;
+  } else if (!isInDrawdown && athVal > 0 && portVal >= athVal * 0.995) {
+    html += `
+      <div style="background:rgba(34,211,165,0.07);border:1px solid rgba(34,211,165,0.2);border-radius:var(--radius-sm);padding:10px;margin-bottom:10px;text-align:center">
+        <div style="font-size:12px;font-weight:700;color:var(--green)">🏆 Di ATH Portfolio!</div>
+        <div style="font-size:10px;color:var(--text3);margin-top:2px">Portfolio kamu saat ini di level tertinggi sepanjang masa</div>
+      </div>`;
+  }
+
+  // ── Tabel ringkasan ──
+  html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">';
+
+  const stats = [
+    { label: 'Avg. Buy Price', val: fUSD(avgPrice), color: 'var(--text)' },
+    { label: 'Harga Sekarang', val: currentPrice > 0 ? '$' + fNum(currentPrice) : '–', color: isProfit ? 'var(--green)' : 'var(--red)' },
+    { label: 'Modal Total', val: fUSD(cumModal), color: 'var(--blue)' },
+    { label: 'Nilai Portfolio', val: fUSD(portVal), color: 'var(--gold)' },
+    { label: 'ATH Portfolio', val: fUSD(athVal), color: 'var(--gold)' },
+    { label: 'P&L vs Modal', val: (pnl >= 0 ? '+' : '') + fUSD(pnl) + ' (' + (pnlPct >= 0 ? '+' : '') + (pnlPct * 100).toFixed(1) + '%)', color: pnl >= 0 ? 'var(--green)' : 'var(--red)' },
+  ];
+
+  stats.forEach(s => {
+    html += `<div style="background:var(--card2);border-radius:8px;padding:8px 10px;border:1px solid var(--border)">
+      <div style="font-size:10px;color:var(--text3);margin-bottom:3px">${s.label}</div>
+      <div style="font-family:var(--mono);font-size:12px;font-weight:600;color:${s.color}">${s.val}</div>
+    </div>`;
+  });
+
+  html += '</div>';
+
   el.innerHTML = html;
 }
+
 
 function calcRecovery() {
   const latest = getLatestBulanan();
@@ -4045,36 +4256,97 @@ function calcRecovery() {
   if (!currentPrice) { toast('⚠️ Tidak ada data harga harian'); return; }
 
   const targetMonthly = parseFloat(document.getElementById('rec-target').value) || 10;
-  const { avgPrice, cumBTC, cumModal, pnl } = latest;
+  const { avgPrice, cumBTC, cumModal, pnl, portVal } = latest;
+  const monthlyDCA = STATE.settings ? (STATE.settings.dcaBulanan || 0) : 0;
 
-  if (pnl >= 0) {
-    el.innerHTML = `<div class="signal-banner green"><div class="signal-icon">✅</div><div class="signal-text"><div class="signal-title">Sudah Profit!</div><div class="signal-desc">Portfolio kamu sudah di atas break even.</div></div></div>`;
-    return;
+  // Hitung ATH portfolio
+  const rows = calcBulananRowsFull(STATE.bulanan, STATE.ammoLog, STATE.settings, currentPrice);
+  const portVals = rows.map(r => r.portVal);
+  const athVal = portVals.length > 0 ? Math.max(...portVals) : 0;
+  const ddFromATH = athVal > 0 ? (portVal - athVal) / athVal * 100 : 0;
+
+  // Fungsi estimasi bulan ke target price, memperhitungkan DCA lanjutan
+  function estMonths(targetPriceFn, maxMonths) {
+    let months = 0;
+    let simPrice = currentPrice;
+    let simBTC = cumBTC;
+    let simModal = cumModal;
+    while (months < maxMonths) {
+      const simPortVal = simBTC * simPrice;
+      const simPnl = simPortVal - simModal;
+      if (targetPriceFn(simPrice, simBTC, simModal, simPortVal, simPnl)) break;
+      simPrice *= (1 + targetMonthly / 100);
+      // DCA lanjutan setiap bulan (menurunkan avg price saat harga naik)
+      if (monthlyDCA > 0 && simPrice > 0) {
+        simBTC += monthlyDCA / simPrice;
+        simModal += monthlyDCA;
+      }
+      months++;
+    }
+    return months >= maxMonths ? null : months;
   }
 
-  // Estimate months needed at targetMonthly% per month from current
-  const bePrice = avgPrice;
-  let months = 0;
-  let simPrice = currentPrice;
-  while (simPrice < bePrice && months < 120) {
-    simPrice *= (1 + targetMonthly / 100);
-    months++;
+  // Scenario 1: break even avg price
+  const monthsBE = pnl >= 0 ? 0 : estMonths((p) => p >= avgPrice, 120);
+  // Scenario 2: recovery ATH portfolio
+  const monthsATH = portVal >= athVal * 0.995 ? 0 : estMonths((p, btc, modal, pv) => pv >= athVal, 240);
+  // Scenario 3: +50% dari modal
+  const target50pct = cumModal * 1.5;
+  const months50 = portVal >= target50pct ? 0 : estMonths((p, btc, modal, pv) => pv >= target50pct, 360);
+  // Scenario 4: 2x modal
+  const target2x = cumModal * 2;
+  const months2x = portVal >= target2x ? 0 : estMonths((p, btc, modal, pv) => pv >= target2x, 360);
+
+  function monthLabel(m) {
+    if (m === null) return { text: '>240 bln', color: 'var(--red)' };
+    if (m === 0) return { text: 'Sudah tercapai ✅', color: 'var(--green)' };
+    if (m <= 3) return { text: '~' + m + ' bulan', color: 'var(--green)' };
+    if (m <= 12) return { text: '~' + m + ' bulan', color: 'var(--yellow)' };
+    if (m <= 24) return { text: '~' + m + ' bulan', color: 'var(--orange)' };
+    const yr = Math.floor(m / 12);
+    const mo = m % 12;
+    return { text: '~' + yr + 'th' + (mo > 0 ? ' ' + mo + 'bln' : ''), color: 'var(--red)' };
   }
+
+  const beLbl   = monthLabel(monthsBE);
+  const athLbl  = monthLabel(monthsATH);
+  const lbl50   = monthLabel(months50);
+  const lbl2x   = monthLabel(months2x);
 
   el.innerHTML = `
     <div class="card" style="padding:14px;background:var(--card2);border:1px solid var(--border)">
-      <div style="font-size:11px;color:var(--text3);margin-bottom:8px;font-weight:600;letter-spacing:0.5px">ESTIMASI RECOVERY</div>
-      <div style="display:flex;justify-content:space-between;margin-bottom:8px">
-        <span style="font-size:12px;color:var(--text3)">Target Return/Bulan</span>
-        <span style="font-family:var(--mono);color:var(--gold)">+${targetMonthly}%</span>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:10px;font-weight:700;letter-spacing:0.5px">📊 ESTIMASI RECOVERY — Asumsi +${targetMonthly}%/bln${monthlyDCA > 0 ? ' + DCA $' + fNum(monthlyDCA) + '/bln' : ''}</div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
+        <div style="background:var(--bg3);border-radius:8px;padding:10px">
+          <div style="font-size:10px;color:var(--text3);margin-bottom:4px">Break Even Avg Price</div>
+          <div style="font-size:11px;color:var(--text3);margin-bottom:4px">Target: $${fNum(avgPrice)}</div>
+          <div style="font-family:var(--mono);font-size:14px;font-weight:700;color:${beLbl.color}">${beLbl.text}</div>
+        </div>
+        <div style="background:var(--bg3);border-radius:8px;padding:10px">
+          <div style="font-size:10px;color:var(--text3);margin-bottom:4px">Recovery ATH Portfolio</div>
+          <div style="font-size:11px;color:var(--text3);margin-bottom:4px">Target: ${fUSD(athVal)}</div>
+          <div style="font-family:var(--mono);font-size:14px;font-weight:700;color:${athLbl.color}">${athLbl.text}</div>
+        </div>
+        <div style="background:var(--bg3);border-radius:8px;padding:10px">
+          <div style="font-size:10px;color:var(--text3);margin-bottom:4px">Profit +50% Modal</div>
+          <div style="font-size:11px;color:var(--text3);margin-bottom:4px">Target: ${fUSD(target50pct)}</div>
+          <div style="font-family:var(--mono);font-size:14px;font-weight:700;color:${lbl50.color}">${lbl50.text}</div>
+        </div>
+        <div style="background:var(--bg3);border-radius:8px;padding:10px">
+          <div style="font-size:10px;color:var(--text3);margin-bottom:4px">2x Modal (100% profit)</div>
+          <div style="font-size:11px;color:var(--text3);margin-bottom:4px">Target: ${fUSD(target2x)}</div>
+          <div style="font-family:var(--mono);font-size:14px;font-weight:700;color:${lbl2x.color}">${lbl2x.text}</div>
+        </div>
       </div>
-      <div style="display:flex;justify-content:space-between;margin-bottom:8px">
-        <span style="font-size:12px;color:var(--text3)">Break Even Price</span>
-        <span style="font-family:var(--mono);color:var(--text)">$${fNum(bePrice)}</span>
-      </div>
-      <div style="display:flex;justify-content:space-between">
-        <span style="font-size:12px;color:var(--text3)">Estimasi Waktu Recovery</span>
-        <span style="font-family:var(--mono);font-size:16px;font-weight:500;color:${months<=6?'var(--green)':months<=12?'var(--yellow)':'var(--red)'}">~${months} bulan</span>
+
+      ${ddFromATH < -0.5 ? `<div style="background:rgba(244,83,106,0.08);border-left:2px solid var(--red);border-radius:0 6px 6px 0;padding:7px 10px;font-size:10px;color:var(--text2);line-height:1.5">
+        📉 Portfolio saat ini <b style="color:var(--red)">${ddFromATH.toFixed(1)}%</b> di bawah ATH portfolio.
+        Butuh naik <b style="color:var(--orange)">+${((athVal/portVal - 1)*100).toFixed(1)}%</b> dari nilai sekarang untuk recovery ATH.
+      </div>` : ''}
+
+      <div style="font-size:9px;color:var(--text3);margin-top:8px;line-height:1.4">
+        ⚠️ Estimasi berdasarkan return BTC +${targetMonthly}%/bulan konstan. Crypto sangat volatil — gunakan sebagai referensi saja, bukan prediksi.
       </div>
     </div>`;
 }
@@ -4088,6 +4360,8 @@ function renderDrawdown() {
   if (!rows.length) return;
 
   const portVals = rows.map(r => r.portVal);
+
+  // Running max untuk drawdown series
   let runningMax = 0;
   const ddSeries = portVals.map(v => {
     if (v > runningMax) runningMax = v;
@@ -4095,10 +4369,69 @@ function renderDrawdown() {
   });
 
   const athVal = Math.max(...portVals);
-  // currentVal = BTC holdings × harga terkini (sudah terintegrasi di portVal baris terakhir)
-  const currentVal = rows[rows.length-1].portVal;
+  const athIdx = portVals.indexOf(athVal);
+  const athMonth = rows[athIdx] ? rows[athIdx].month : null;
+
+  const currentVal = rows[rows.length - 1].portVal;
   const currentDD = athVal > 0 ? (currentVal - athVal) / athVal * 100 : 0;
-  const maxDD = Math.min(...ddSeries);
+  const maxDD = Math.min(...ddSeries); // paling negatif = drawdown terbesar
+
+  // Berapa bulan sudah dalam drawdown
+  const monthsInDD = (athIdx >= 0 && athIdx < rows.length - 1) ? rows.length - 1 - athIdx : 0;
+  const isInDD = currentDD < -0.5;
+
+  // Recovery needed from current drawdown
+  const recoveryNeeded = currentDD < 0 ? (-currentDD / (100 + currentDD)) * 100 : 0;
+
+  // ── Durasi drawdown terpanjang secara historis ──
+  // Cari periode terpanjang (dalam jumlah baris/bulan) di mana portfolio berada di bawah ATH-nya saat itu.
+  let longestDDMonths = 0, curRunMonths = 0, runMax2 = 0;
+  for (let i = 0; i < portVals.length; i++) {
+    if (portVals[i] >= runMax2) { runMax2 = portVals[i]; curRunMonths = 0; }
+    else { curRunMonths++; if (curRunMonths > longestDDMonths) longestDDMonths = curRunMonths; }
+  }
+  longestDDMonths = Math.max(longestDDMonths, monthsInDD);
+
+  // ── Drawdown dari Avg. Buy Price (metrik utama untuk DCA) ──
+  const lastRow = rows[rows.length - 1];
+  const avgBuy = lastRow.avgPrice || 0;
+  const priceNow = currentPrice || lastRow.currentPrice || 0;
+  const ddFromAvg = avgBuy > 0 ? ((priceNow - avgBuy) / avgBuy * 100) : 0;
+
+  // Zona AMMO aktif berdasarkan drawdown dari avg buy (selaras dengan Strategy > AMMO Buy)
+  const s = STATE.settings || {};
+  const l1 = s.ammoL1Drop != null ? s.ammoL1Drop : -10;
+  const l2 = s.ammoL2Drop != null ? s.ammoL2Drop : -20;
+  const l3 = s.ammoL3Drop != null ? s.ammoL3Drop : -30;
+  let ammoZoneLabel = '🟢 Normal', ammoZoneColor = 'var(--green)';
+  if (avgBuy > 0) {
+    if (ddFromAvg <= l3) { ammoZoneLabel = '🔴 L3 – Extreme'; ammoZoneColor = 'var(--red)'; }
+    else if (ddFromAvg <= l2) { ammoZoneLabel = '🟠 L2 – Severe'; ammoZoneColor = 'var(--orange)'; }
+    else if (ddFromAvg <= l1) { ammoZoneLabel = '🟡 L1 – Moderate'; ammoZoneColor = 'var(--yellow)'; }
+    else if (ddFromAvg < 0) { ammoZoneLabel = '🔵 Turun ringan'; ammoZoneColor = 'var(--blue)'; }
+    else { ammoZoneLabel = '🟢 Profit / Normal'; ammoZoneColor = 'var(--green)'; }
+  } else {
+    ammoZoneLabel = '–'; ammoZoneColor = 'var(--text3)';
+  }
+
+  const elAvgBuy = document.getElementById('dd-avgbuy');
+  const elPriceNow = document.getElementById('dd-price-now');
+  const elDdAvgPct = document.getElementById('dd-avg-pct');
+  const elAmmoZone = document.getElementById('dd-ammo-zone');
+  if (elAvgBuy) elAvgBuy.textContent = fUSD(avgBuy);
+  if (elPriceNow) elPriceNow.textContent = fUSD(priceNow);
+  if (elDdAvgPct) {
+    elDdAvgPct.textContent = (ddFromAvg >= 0 ? '+' : '') + ddFromAvg.toFixed(1) + '%';
+    elDdAvgPct.style.color = ddFromAvg < -30 ? 'var(--red)' : ddFromAvg < -15 ? 'var(--orange)' : ddFromAvg < 0 ? 'var(--yellow)' : 'var(--green)';
+  }
+  if (elAmmoZone) { elAmmoZone.textContent = ammoZoneLabel; elAmmoZone.style.color = ammoZoneColor; }
+
+  const elMonthsCur = document.getElementById('dd-months-current');
+  const elMonthsLongest = document.getElementById('dd-months-longest');
+  const elRecoveryNeed = document.getElementById('dd-recovery-need');
+  if (elMonthsCur) elMonthsCur.textContent = monthsInDD + ' bln';
+  if (elMonthsLongest) elMonthsLongest.textContent = longestDDMonths + ' bln';
+  if (elRecoveryNeed) elRecoveryNeed.textContent = '+' + recoveryNeeded.toFixed(1) + '%';
 
   const el1 = document.getElementById('dd-ath');
   const el2 = document.getElementById('dd-current');
@@ -4106,48 +4439,110 @@ function renderDrawdown() {
   const el4 = document.getElementById('dd-current-pct');
   const gauge = document.getElementById('dd-gauge-fill');
 
-  if (el1) el1.textContent = fUSD(athVal);
+  if (el1) {
+    el1.textContent = fUSD(athVal);
+    // Tambah info tanggal ATH
+    const athInfo = document.getElementById('dd-ath-info');
+    if (athInfo && athMonth) athInfo.textContent = fMonth(athMonth);
+  }
   if (el2) el2.textContent = fUSD(currentVal);
-  if (el3) { el3.textContent = maxDD.toFixed(1) + '%'; el3.style.color = 'var(--red)'; }
+  if (el3) {
+    el3.textContent = maxDD.toFixed(1) + '%';
+    el3.style.color = 'var(--red)';
+  }
   if (el4) {
     el4.textContent = currentDD.toFixed(1) + '%';
     el4.style.color = currentDD < -30 ? 'var(--red)' : currentDD < -15 ? 'var(--orange)' : currentDD < -5 ? 'var(--yellow)' : 'var(--green)';
   }
-  if (gauge) gauge.style.width = Math.min(100, Math.abs(currentDD) * 1.33) + '%';
 
-  // Drawdown chart
+  // Gauge: skala linier 0–75% drawdown → 0–100% bar width
+  const gaugeWidth = athVal > 0 ? Math.min(100, (Math.abs(currentDD) / 75) * 100) : 0;
+  if (gauge) {
+    gauge.style.width = gaugeWidth + '%';
+    gauge.style.background = Math.abs(currentDD) > 50 ? 'var(--red)' : Math.abs(currentDD) > 25 ? 'var(--orange)' : 'var(--yellow)';
+  }
+
+  // Info tambahan: months in drawdown + recovery needed
+  const ddExtraEl = document.getElementById('dd-extra-info');
+  if (ddExtraEl) {
+    if (isInDD && monthsInDD > 0) {
+      ddExtraEl.innerHTML = `<span style="color:var(--orange)">⏱ ${monthsInDD} bulan dalam drawdown</span>&nbsp;·&nbsp;<span style="color:var(--text2)">Butuh +${recoveryNeeded.toFixed(1)}% untuk recovery ATH</span>`;
+    } else if (!isInDD) {
+      ddExtraEl.innerHTML = `<span style="color:var(--green)">✅ Di level ATH / mendekati ATH portfolio</span>`;
+    } else {
+      ddExtraEl.innerHTML = '';
+    }
+  }
+
+  // Drawdown chart — dengan reference lines di -25% dan -50%
   destroyChart('chartDrawdown');
   const ctx = document.getElementById('chartDrawdown');
-  if (ctx && ddSeries.length > 0) {
-    chartInstances['chartDrawdown'] = new Chart(ctx, {
-      type: 'line',
-      data: {
-        labels: rows.map(r => fMonth(r.month)),
-        datasets: [{
+  if (!ctx || ddSeries.length === 0) return;
+
+  const labels = rows.map(r => fMonth(r.month));
+  const minDD = Math.min(...ddSeries, -5); // minimal -5% agar chart tidak flat
+
+  chartInstances['chartDrawdown'] = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: 'Drawdown Portfolio',
           data: ddSeries.map(v => parseFloat(v.toFixed(2))),
           borderColor: '#f4536a',
           backgroundColor: 'rgba(244,83,106,0.12)',
           borderWidth: 2,
-          pointRadius: 4,
-          pointBackgroundColor: '#f4536a',
+          pointRadius: ddSeries.length <= 12 ? 4 : 2,
+          pointBackgroundColor: ddSeries.map(v =>
+            v < -50 ? '#f4536a' : v < -25 ? '#f7931a' : v < -10 ? '#f5c542' : '#22d3a5'
+          ),
           pointBorderColor: '#080b12',
           pointBorderWidth: 2,
           fill: true,
           tension: 0.3
-        }]
-      },
-      options: {
-        ...CHART_DEFAULTS,
-        plugins: {
-          ...CHART_DEFAULTS.plugins,
-          tooltip: { ...CHART_DEFAULTS.plugins.tooltip, callbacks: { label: ctx => ' DD: ' + ctx.raw.toFixed(2) + '%' } }
+        }
+      ]
+    },
+    options: {
+      ...CHART_DEFAULTS,
+      plugins: {
+        ...CHART_DEFAULTS.plugins,
+        tooltip: {
+          ...CHART_DEFAULTS.plugins.tooltip,
+          callbacks: {
+            label: ctx => {
+              const v = ctx.raw;
+              const flag = v < -50 ? ' 🔴 Extreme' : v < -25 ? ' 🟠 Severe' : v < -10 ? ' 🟡 Moderate' : ' 🟢 Mild';
+              return ' DD: ' + v.toFixed(2) + '%' + flag;
+            }
+          }
         },
-        scales: {
-          ...CHART_DEFAULTS.scales,
-          y: { ...CHART_DEFAULTS.scales.y, ticks: { ...CHART_DEFAULTS.scales.y.ticks, callback: v => v + '%' } }
+        annotation: undefined // chart.js annotation plugin tidak selalu ada, skip
+      },
+      scales: {
+        ...CHART_DEFAULTS.scales,
+        y: {
+          ...CHART_DEFAULTS.scales.y,
+          min: Math.min(minDD * 1.1, -10),
+          max: 5,
+          ticks: {
+            ...CHART_DEFAULTS.scales.y.ticks,
+            callback: v => v + '%'
+          }
         }
       }
-    });
+    }
+  });
+
+  // Tambahkan legenda zona drawdown di bawah chart
+  const legendEl = document.getElementById('dd-zone-legend');
+  if (legendEl) {
+    legendEl.innerHTML = `
+      <span style="color:var(--green)">● Mild (&lt;10%)</span>
+      <span style="color:var(--yellow)">● Moderate (10–25%)</span>
+      <span style="color:var(--orange)">● Severe (25–50%)</span>
+      <span style="color:var(--red)">● Extreme (&gt;50%)</span>`;
   }
 }
 
@@ -4169,19 +4564,44 @@ function saveCycleInputs() {
   };
   localStorage.setItem(CYCLE_STORE, JSON.stringify(data));
 }
+
+function clearCycleManualInputs() {
+  ['ci-fg','ci-mvrv','ci-nupl','ci-puell'].forEach(function(id) {
+    var el = document.getElementById(id);
+    if (el) { el.value = ''; el.dataset.auto = ''; }
+  });
+  try { localStorage.removeItem(CYCLE_STORE); } catch(e) {}
+  // Paksa re-fetch dari API
+  if (typeof refreshCycleData === 'function') refreshCycleData(true);
+  else if (typeof renderCycle === 'function') renderCycle();
+  if (typeof toast === 'function') toast('Input manual direset. Memuat ulang dari API...');
+}
 function loadCycleInputs() {
   try {
-    const raw = localStorage.getItem(CYCLE_STORE);
+    var raw = localStorage.getItem(CYCLE_STORE);
     if (!raw) return;
-    const d = JSON.parse(raw);
-    const fg = document.getElementById('ci-fg');
-    const mvrv = document.getElementById('ci-mvrv');
-    const nupl = document.getElementById('ci-nupl');
-    const puell = document.getElementById('ci-puell');
-    if (fg && d.fg) fg.value = d.fg;
-    if (mvrv && d.mvrv) mvrv.value = d.mvrv;
-    if (nupl && d.nupl) nupl.value = d.nupl;
-    if (puell && d.puell) puell.value = d.puell;
+    var d = JSON.parse(raw);
+    var fg   = document.getElementById('ci-fg');
+    var mvrv = document.getElementById('ci-mvrv');
+    var nupl = document.getElementById('ci-nupl');
+    var puell = document.getElementById('ci-puell');
+    // Validasi sebelum isi — hindari mengisi nilai kotor (timestamp/garbage)
+    if (fg && d.fg) {
+      var fgV = parseFloat(d.fg);
+      if (!isNaN(fgV) && fgV >= 0 && fgV <= 100) fg.value = d.fg;
+    }
+    if (mvrv && d.mvrv) {
+      var mvV = parseFloat(d.mvrv);
+      if (isValidOnchainVal('mvrv-zscore', mvV)) mvrv.value = d.mvrv;
+    }
+    if (nupl && d.nupl) {
+      var nuV = parseFloat(d.nupl);
+      if (isValidOnchainVal('nupl', nuV)) nupl.value = d.nupl;
+    }
+    if (puell && d.puell) {
+      var puV = parseFloat(d.puell);
+      if (isValidOnchainVal('puell', puV)) puell.value = d.puell;
+    }
   } catch(e) {}
 }
 
@@ -4222,22 +4642,519 @@ function scorePuell(val) {
   return { score: 0, status: '🔴 Miner Euphoria – Potential Top', color: 'var(--red)' };
 }
 
+// ══════════════════════════════════════════════════════
+// AUTO-FETCH DATA CYCLE — F&G (alternative.me) + On-chain (BGeometrics)
+// Cache 24 jam supaya tidak kena rate limit API gratis (10 req/jam, 15 req/hari)
+// ══════════════════════════════════════════════════════
+const CYCLE_CACHE_KEY = 'cycle_data_cache_v3'; // v3: paksa fresh, hapus cache kotor lama
+
+// ── Validasi range realistis per metrik (buang nilai timestamp/garbage) ──
+const ONCHAIN_VALID_RANGE = {
+  'mvrv-zscore':     { min: -5,    max: 15   },
+  'nupl':            { min: -0.5,  max: 1    },
+  'puell':           { min: 0,     max: 15   },
+  'sopr':            { min: 0.5,   max: 1.5  },
+  'asopr':           { min: 0.5,   max: 1.5  },
+  'reserve-risk':    { min: 0,     max: 0.05 },
+  'rhodl':           { min: 0,     max: 80000},
+  'sth-mvrv':        { min: -5,    max: 10   },
+  'lth-mvrv':        { min: 0,     max: 30   },
+  'realized-price':  { min: 1000,  max: 500000 },
+  'realized-cap':    { min: 1e10,  max: 1e13  },
+  'exchange-netflow':{ min: -100000, max: 100000 },
+  'btc-dominance':   { min: 20,    max: 80   }
+};
+
+function isValidOnchainVal(key, val) {
+  if (val === null || val === undefined || isNaN(val)) return false;
+  // Blokir nilai yang mirip Unix timestamp (detik atau milidetik)
+  if (val > 1_000_000_000) return false;
+  var range = ONCHAIN_VALID_RANGE[key];
+  if (range) return val >= range.min && val <= range.max;
+  return true;
+}
+
+// Bersihkan cache lama (versi apapun) yang mengandung nilai timestamp
+function sanitizeLegacyCaches() {
+  var oldKeys = ['cycle_data_cache_v1', 'cycle_data_cache_v2'];
+  oldKeys.forEach(function(k) { try { localStorage.removeItem(k); } catch(e) {} });
+
+  // Bersihkan juga CYCLE_STORE (btc_cycle_v1) jika ada nilai tidak wajar
+  try {
+    var raw = localStorage.getItem('btc_cycle_v1');
+    if (raw) {
+      var d = JSON.parse(raw);
+      var changed = false;
+      ['mvrv','nupl','puell'].forEach(function(k) {
+        var keyMap = { mvrv: 'mvrv-zscore', nupl: 'nupl', puell: 'puell' };
+        if (d[k] && !isValidOnchainVal(keyMap[k], parseFloat(d[k]))) {
+          d[k] = '';
+          changed = true;
+        }
+      });
+      if (changed) localStorage.setItem('btc_cycle_v1', JSON.stringify(d));
+    }
+  } catch(e) {}
+}
+sanitizeLegacyCaches();
+const CYCLE_CACHE_MAX_AGE = 24 * 60 * 60 * 1000; // 24 jam
+const BG_API_BASE = 'https://api.bgeometrics.com/v1';
+
+// Daftar metrik on-chain tambahan (informasi saja, tidak memengaruhi skor)
+const ONCHAIN_METRICS_CONFIG = [
+  { key: 'sopr', name: 'SOPR', slug: 'sopr', desc: 'Spent Output Profit Ratio. >1 berarti rata-rata koin yang dijual hari ini dalam kondisi untung; <1 berarti rugi. SOPR turun ke ~1 saat koreksi sering jadi area support psikologis.', fmt: v => v.toFixed(3), zone: v => v >= 1 ? { c: 'var(--green)', l: 'Profit' } : { c: 'var(--red)', l: 'Rugi' } },
+  { key: 'asopr', name: 'aSOPR', slug: 'asopr', desc: 'Adjusted SOPR — sama seperti SOPR tapi mengabaikan koin yang berpindah dalam <1 jam (mengurangi noise dari exchange/bot). Lebih akurat untuk membaca perilaku holder sungguhan.', fmt: v => v.toFixed(3), zone: v => v >= 1 ? { c: 'var(--green)', l: 'Profit' } : { c: 'var(--red)', l: 'Rugi' } },
+  { key: 'realized-price', name: 'Realized Price', slug: 'realized-price', desc: 'Harga rata-rata di mana seluruh supply BTC terakhir kali berpindah tangan. Ini semacam "harga modal rata-rata" seluruh pasar — kalau harga pasar di bawah ini, mayoritas holder sedang rugi.', fmt: v => '$' + Math.round(v).toLocaleString('en-US'), zone: () => ({ c: 'var(--gold)', l: 'Referensi' }) },
+  { key: 'realized-cap', name: 'Realized Cap', slug: 'realized-cap', desc: 'Total nilai seluruh BTC dihitung dari harga saat terakhir kali berpindah (bukan harga pasar saat ini). Dipakai sebagai basis MVRV dan dianggap valuasi yang lebih "jujur" dibanding market cap.', fmt: v => '$' + (v/1e9).toFixed(1) + 'B', zone: () => ({ c: 'var(--gold)', l: 'Referensi' }) },
+  { key: 'reserve-risk', name: 'Reserve Risk', slug: 'reserve-risk', desc: 'Rasio harga terhadap keyakinan holder jangka panjang. Rendah (hijau) = holder yakin & harga relatif murah = risk/reward menarik. Tinggi (merah) = holder mulai ragu di harga tinggi.', fmt: v => v.toFixed(5), zone: v => v < 0.002 ? { c: 'var(--green)', l: 'Menarik' } : v < 0.02 ? { c: 'var(--yellow)', l: 'Netral' } : { c: 'var(--red)', l: 'Mahal' } },
+  { key: 'rhodl', name: 'RHODL Ratio', slug: 'rhodl-ratio', desc: 'Membandingkan kekayaan koin yang baru berpindah (1 minggu) vs koin lama (1-2 tahun). Tinggi = banyak aktivitas spekulatif jangka pendek, biasa terjadi mendekati puncak siklus.', fmt: v => Math.round(v).toLocaleString('en-US'), zone: v => v > 10000 ? { c: 'var(--red)', l: 'Overheated' } : v > 3000 ? { c: 'var(--yellow)', l: 'Waspada' } : { c: 'var(--green)', l: 'Sehat' } },
+  { key: 'puell', name: 'Puell Multiple', slug: 'puell-multiple', desc: 'Pendapatan harian miner dibagi rata-rata 365 hari. Sama seperti input di skor cycle di atas — ditampilkan lagi di sini sebagai referensi cepat.', fmt: v => v.toFixed(2), zone: v => v < 0.5 ? { c: 'var(--green)', l: 'Murah' } : v <= 4 ? { c: 'var(--yellow)', l: 'Normal' } : { c: 'var(--red)', l: 'Puncak?' } },
+  { key: 'mvrv-zscore', name: 'MVRV Z-Score', slug: 'mvrv-zscore', desc: 'Versi ternormalisasi dari MVRV, dipakai juga sebagai salah satu komponen skor di atas. Ditampilkan lagi di sini untuk referensi cepat.', fmt: v => v.toFixed(2), zone: v => v < 1 ? { c: 'var(--green)', l: 'Undervalued' } : v <= 4 ? { c: 'var(--yellow)', l: 'Fair' } : { c: 'var(--red)', l: 'Overvalued' } },
+  { key: 'nupl', name: 'NUPL', slug: 'nupl', desc: 'Net Unrealized Profit/Loss — persentase supply yang sedang untung dikurangi yang rugi. Juga komponen skor di atas, ditampilkan lagi sebagai referensi cepat.', fmt: v => (v*100).toFixed(1) + '%', zone: v => v < 0 ? { c: 'var(--green)', l: 'Capitulation' } : v <= 0.5 ? { c: 'var(--green)', l: 'Optimism' } : v <= 0.75 ? { c: 'var(--yellow)', l: 'Belief' } : { c: 'var(--red)', l: 'Euphoria' } },
+  { key: 'sth-mvrv', name: 'STH-MVRV', slug: 'sth-mvrv', desc: 'MVRV khusus untuk Short-Term Holder (kepemilikan <155 hari). Lebih sensitif terhadap pergerakan harga jangka pendek dibanding MVRV biasa.', fmt: v => v.toFixed(2), zone: v => v >= 1 ? { c: 'var(--green)', l: 'STH Profit' } : { c: 'var(--red)', l: 'STH Rugi' } },
+  { key: 'lth-mvrv', name: 'LTH-MVRV', slug: 'lth-mvrv', desc: 'MVRV khusus untuk Long-Term Holder (kepemilikan ≥155 hari). Mencerminkan seberapa besar profit holder jangka panjang — sering jadi sinyal kapan LTH mulai distribusi.', fmt: v => v.toFixed(2), zone: v => v >= 3.5 ? { c: 'var(--red)', l: 'LTH Distribusi?' } : { c: 'var(--green)', l: 'LTH Hold' } },
+  { key: 'exchange-netflow', name: 'Exchange Netflow', slug: 'exchange-netflow', desc: 'Selisih BTC yang masuk vs keluar dari exchange. Negatif (BTC keluar exchange) biasanya bullish (akumulasi/self-custody). Positif (BTC masuk exchange) sering mengindikasikan potensi tekanan jual.', fmt: v => (v>=0?'+':'') + v.toFixed(1) + ' BTC', zone: v => v < 0 ? { c: 'var(--green)', l: 'Keluar Exchange' } : { c: 'var(--red)', l: 'Masuk Exchange' } }
+];
+
+function fetchJsonTimeout(url, ms) {
+  var controller = new AbortController();
+  var timer = setTimeout(function(){ controller.abort(); }, ms || 8000);
+  return fetch(url, { cache: 'no-store', signal: controller.signal })
+    .finally(function(){ clearTimeout(timer); })
+    .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); });
+}
+
+function getBgToken() {
+  try { return localStorage.getItem('bg_api_token') || ''; } catch(e) { return ''; }
+}
+
+function saveBgToken() {
+  try {
+    const el = document.getElementById('s-bg-token');
+    if (el) localStorage.setItem('bg_api_token', el.value.trim());
+  } catch(e) {}
+}
+
+function bgUrl(slug) {
+  var token = getBgToken();
+  return BG_API_BASE + '/' + slug + '/last' + (token ? ('?token=' + encodeURIComponent(token)) : '');
+}
+
+// Ambil satu nilai terakhir dari BGeometrics; toleran terhadap variasi bentuk respons
+function extractLastValue(json) {
+  if (json == null) return null;
+  if (typeof json === 'number') {
+    // Langsung tolak jika mirip Unix timestamp
+    return json > 1_000_000_000 ? null : json;
+  }
+  var row = Array.isArray(json) ? json[json.length - 1] : json;
+  if (row == null) return null;
+  if (typeof row === 'number') return row > 1_000_000_000 ? null : row;
+  var keys = Object.keys(row);
+  // Cari field nilai (bukan tanggal/waktu/id)
+  for (var i = 0; i < keys.length; i++) {
+    var k = keys[i];
+    if (/date|time|d$|^t$|^ts$|^timestamp$|^T$|^id$|^_id$/i.test(k)) continue;
+    var v = parseFloat(row[k]);
+    if (!isNaN(v) && v <= 1_000_000_000) return v;
+  }
+  return null;
+}
+
+function readCycleCache() {
+  try {
+    var raw = localStorage.getItem(CYCLE_CACHE_KEY);
+    if (!raw) return null;
+    var data = JSON.parse(raw);
+    // Sanitasi: pastikan semua nilai onchain dalam range valid
+    if (data && data.onchain) {
+      Object.keys(data.onchain).forEach(function(key) {
+        var val = data.onchain[key];
+        if (val !== null && !isValidOnchainVal(key, val)) {
+          data.onchain[key] = null;
+        }
+      });
+    }
+    // Sanitasi Fear & Greed (harus 0-100)
+    if (data && data.fg !== null && data.fg !== undefined) {
+      if (data.fg < 0 || data.fg > 100) data.fg = null;
+    }
+    return data;
+  } catch(e) { return null; }
+}
+
+function writeCycleCache(data) {
+  try { localStorage.setItem(CYCLE_CACHE_KEY, JSON.stringify(data)); } catch(e) {}
+}
+
+async function refreshCycleData(force) {
+  var statusEl = document.getElementById('cycle-fetch-status-text');
+  var btnEl = document.getElementById('cycle-refresh-btn');
+  var cached = readCycleCache();
+  var isFresh = cached && (Date.now() - cached.fetchedAt) < CYCLE_CACHE_MAX_AGE;
+
+  if (isFresh && !force) {
+    applyCycleData(cached);
+    return;
+  }
+
+  if (btnEl) { btnEl.disabled = true; btnEl.textContent = '⏳ ...'; }
+  if (statusEl) statusEl.textContent = 'Mengambil data terbaru...';
+
+  var result = { fetchedAt: Date.now(), fg: null, onchain: {} };
+
+  // Fear & Greed — gratis, tanpa key, tanpa limit ketat
+  try {
+    var fngData = await fetchJsonTimeout('https://api.alternative.me/fng/?limit=1', 6000);
+    if (fngData && fngData.data && fngData.data[0]) {
+      result.fg = parseInt(fngData.data[0].value, 10);
+    }
+  } catch(e) { console.warn('[Cycle] Fear & Greed gagal:', e.message); }
+
+  // On-chain metrics: BGeometrics (jika ada token) + free APIs
+  var token = getBgToken();
+  var jobs = [];
+
+  // BGeometrics — hanya jalan jika user punya token (paid)
+  if (token) {
+    jobs = ONCHAIN_METRICS_CONFIG.map(function(m) {
+      return fetchJsonTimeout(bgUrl(m.slug), 8000)
+        .then(function(json) {
+          var val = extractLastValue(json);
+          // Validasi range realistis per metrik — buang nilai timestamp/garbage
+          result.onchain[m.key] = isValidOnchainVal(m.key, val) ? val : null;
+        })
+        .catch(function(e) { result.onchain[m.key] = null; });
+    });
+    await Promise.allSettled(jobs);
+  }
+
+  // ══════════════════════════════════════════════════════
+  // FREE APIs — tidak butuh token, selalu dijalankan
+  // Sumber: CoinGlass, Glassnode public, Coinpaprika, CoinGecko
+  // ══════════════════════════════════════════════════════
+
+  // 1) BTC Dominance dari Coinpaprika (gratis, reliable)
+  try {
+    var paprika = await fetchJsonTimeout('https://api.coinpaprika.com/v1/global', 6000);
+    if (paprika && paprika.bitcoin_dominance_percentage) {
+      result.onchain['btc-dominance'] = parseFloat(paprika.bitcoin_dominance_percentage.toFixed(1));
+    }
+  } catch(e) { result.onchain['btc-dominance'] = null; }
+
+  // 2) MVRV Z-Score — CoinGlass public API (gratis, no key)
+  if (!result.onchain['mvrv-zscore']) {
+    try {
+      var mvrvRes = await fetchJsonTimeout('https://open-api.coinglass.com/public/v2/indicator/mvrv_z_score', 6000);
+      if (mvrvRes && mvrvRes.data && Array.isArray(mvrvRes.data) && mvrvRes.data.length > 0) {
+        var mvrvLast = mvrvRes.data[mvrvRes.data.length - 1];
+        var mvrvVal = parseFloat(mvrvLast.value || mvrvLast.y || mvrvLast.mvrv || mvrvLast[1]);
+        if (isValidOnchainVal('mvrv-zscore', mvrvVal)) result.onchain['mvrv-zscore'] = parseFloat(mvrvVal.toFixed(3));
+      }
+    } catch(e) { console.warn('[Cycle] CoinGlass MVRV gagal:', e.message); }
+  }
+
+  // 3) MVRV Z-Score fallback — Lookintobitcoin public JSON
+  if (!result.onchain['mvrv-zscore']) {
+    try {
+      var libRes = await fetchJsonTimeout('https://www.lookintobitcoin.com/api/mvrv_zscore/', 7000);
+      if (libRes && libRes.data && Array.isArray(libRes.data) && libRes.data.length > 0) {
+        var libLast = libRes.data[libRes.data.length - 1];
+        var libVal = parseFloat(libLast.value || libLast.mvrv_zscore || libLast[1]);
+        if (isValidOnchainVal('mvrv-zscore', libVal)) result.onchain['mvrv-zscore'] = parseFloat(libVal.toFixed(3));
+      }
+    } catch(e) { console.warn('[Cycle] LookIntoBitcoin MVRV gagal:', e.message); }
+  }
+
+  // 4) NUPL — Lookintobitcoin public JSON
+  if (!result.onchain['nupl']) {
+    try {
+      var nuplRes = await fetchJsonTimeout('https://www.lookintobitcoin.com/api/nupl/', 7000);
+      if (nuplRes && nuplRes.data && Array.isArray(nuplRes.data) && nuplRes.data.length > 0) {
+        var nuplLast = nuplRes.data[nuplRes.data.length - 1];
+        var nuplVal = parseFloat(nuplLast.value || nuplLast.nupl || nuplLast[1]);
+        if (isValidOnchainVal('nupl', nuplVal)) result.onchain['nupl'] = parseFloat(nuplVal.toFixed(4));
+      }
+    } catch(e) { console.warn('[Cycle] LookIntoBitcoin NUPL gagal:', e.message); }
+  }
+
+  // 5) Puell Multiple — Lookintobitcoin public JSON
+  if (!result.onchain['puell']) {
+    try {
+      var puellRes = await fetchJsonTimeout('https://www.lookintobitcoin.com/api/puell_multiple/', 7000);
+      if (puellRes && puellRes.data && Array.isArray(puellRes.data) && puellRes.data.length > 0) {
+        var puellLast = puellRes.data[puellRes.data.length - 1];
+        var puellVal = parseFloat(puellLast.value || puellLast.puell_multiple || puellLast[1]);
+        if (isValidOnchainVal('puell', puellVal)) result.onchain['puell'] = parseFloat(puellVal.toFixed(4));
+      }
+    } catch(e) { console.warn('[Cycle] LookIntoBitcoin Puell gagal:', e.message); }
+  }
+
+  // 6) MVRV Z-Score fallback ke-2 — hitung approx dari CoinGecko data
+  // Realized Price ≈ harga rata-rata historis weighted; MVRV = MarketCap / RealizedCap
+  // Ini estimasi kasar jika semua API gagal
+  if (!result.onchain['mvrv-zscore']) {
+    try {
+      var geckoMkt = await fetchJsonTimeout('https://api.coingecko.com/api/v3/coins/bitcoin?localization=false&tickers=false&community_data=false&developer_data=false', 8000);
+      if (geckoMkt && geckoMkt.market_data) {
+        var mktCap = geckoMkt.market_data.market_cap && geckoMkt.market_data.market_cap.usd;
+        // Realized cap diestimasi dari 200-day MA × supply (kasar)
+        var price200d = geckoMkt.market_data.price_change_percentage_200d_in_currency && geckoMkt.market_data.price_change_percentage_200d_in_currency.usd;
+        var curPrice = geckoMkt.market_data.current_price && geckoMkt.market_data.current_price.usd;
+        var supply = geckoMkt.market_data.circulating_supply;
+        if (mktCap && curPrice && price200d !== null && supply) {
+          // Estimasi realized price ≈ harga 200 hari lalu (sebelum perubahan %)
+          var price200dAgo = curPrice / (1 + price200d / 100);
+          // Realized cap estimasi = rata-rata harga sekarang & 200d lalu × supply
+          var realizedCap = ((curPrice + price200dAgo) / 2) * supply;
+          var mvrvRatio = mktCap / realizedCap;
+          // Z-score sangat kasar: normalize dengan mean historis ~1.5 dan std ~1.0
+          var mvrvZapprox = (mvrvRatio - 1.5) / 1.0;
+          if (isValidOnchainVal('mvrv-zscore', mvrvZapprox)) {
+            result.onchain['mvrv-zscore'] = parseFloat(mvrvZapprox.toFixed(2));
+            console.log('[Cycle] MVRV Z-Score estimasi (CoinGecko):', mvrvZapprox.toFixed(2));
+          }
+        }
+      }
+    } catch(e) { console.warn('[Cycle] CoinGecko MVRV estimasi gagal:', e.message); }
+  }
+
+  // 7) Realized Price dari CoinGecko/Coinpaprika (untuk referensi)
+  if (!result.onchain['realized-price']) {
+    try {
+      if (!result.onchain['realized-price']) {
+        var geckoRP = await fetchJsonTimeout('https://api.coingecko.com/api/v3/coins/bitcoin/market_chart?vs_currency=usd&days=365&interval=daily', 8000);
+        if (geckoRP && geckoRP.prices && geckoRP.prices.length > 0) {
+          // Realized price = simple avg of all daily prices over past year (rough proxy)
+          var allP = geckoRP.prices.map(function(p){ return p[1]; });
+          var avgP = allP.reduce(function(a,b){ return a+b; }, 0) / allP.length;
+          if (isValidOnchainVal('realized-price', avgP)) result.onchain['realized-price'] = Math.round(avgP);
+        }
+      }
+    } catch(e) { console.warn('[Cycle] Realized price gagal:', e.message); }
+  }
+
+  writeCycleCache(result);
+  applyCycleData(result);
+
+  if (btnEl) { btnEl.disabled = false; btnEl.textContent = '🔄 Refresh'; }
+  if (typeof updateDashOnchainCard === 'function') updateDashOnchainCard();
+}
+
+function applyCycleData(data) {
+  var statusEl = document.getElementById('cycle-fetch-status-text');
+  var ageMin = Math.round((Date.now() - data.fetchedAt) / 60000);
+  var ageText = ageMin < 1 ? 'baru saja' : ageMin < 60 ? (ageMin + ' menit lalu') : (Math.round(ageMin/60) + ' jam lalu');
+
+  var okCount = (data.fg !== null ? 1 : 0) + Object.keys(data.onchain).filter(function(k){ return data.onchain[k] !== null; }).length;
+  var totalCount = 1 + ONCHAIN_METRICS_CONFIG.length;
+  var mvrvOk = data.onchain && data.onchain['mvrv-zscore'] !== null && data.onchain['mvrv-zscore'] !== undefined;
+  var nuplOk = data.onchain && data.onchain['nupl'] !== null && data.onchain['nupl'] !== undefined;
+
+  if (statusEl) {
+    if (okCount === 0) {
+      statusEl.innerHTML = '<span style="color:var(--red)">❌ Gagal memuat data — cek koneksi, atau isi manual di bawah</span>';
+    } else if (!mvrvOk || !nuplOk) {
+      var missing = [];
+      if (!mvrvOk) missing.push('MVRV Z-Score');
+      if (!nuplOk) missing.push('NUPL');
+      statusEl.innerHTML = '✅ Update ' + ageText + ' · ' + okCount + '/' + totalCount + ' indikator dimuat · '
+        + '<span style="color:var(--orange)">⚠️ ' + missing.join(', ') + ' belum terisi — isi manual di bawah</span>';
+      // Auto-expand manual override agar user langsung lihat
+      var details = document.getElementById('cycle-manual-override');
+      if (details) details.open = true;
+    } else {
+      statusEl.innerHTML = '✅ Update ' + ageText + ' · ' + okCount + '/' + totalCount + ' indikator berhasil dimuat';
+    }
+  }
+
+  // Isi input F&G / MVRV / NUPL / Puell HANYA jika field kosong atau sebelumnya diisi otomatis
+  // (supaya tidak menimpa angka yang kamu ketik manual)
+  var fgEl = document.getElementById('ci-fg');
+  var mvrvEl = document.getElementById('ci-mvrv');
+  var nuplEl = document.getElementById('ci-nupl');
+  var puellEl = document.getElementById('ci-puell');
+
+  if (fgEl && (fgEl.value === '' || fgEl.dataset.auto === '1') && data.fg !== null && data.fg >= 0 && data.fg <= 100) {
+    fgEl.value = data.fg; fgEl.dataset.auto = '1';
+  }
+  if (mvrvEl && (mvrvEl.value === '' || mvrvEl.dataset.auto === '1') && isValidOnchainVal('mvrv-zscore', data.onchain['mvrv-zscore'])) {
+    mvrvEl.value = data.onchain['mvrv-zscore']; mvrvEl.dataset.auto = '1';
+  }
+  if (nuplEl && (nuplEl.value === '' || nuplEl.dataset.auto === '1') && isValidOnchainVal('nupl', data.onchain['nupl'])) {
+    nuplEl.value = data.onchain['nupl']; nuplEl.dataset.auto = '1';
+  }
+  if (puellEl && (puellEl.value === '' || puellEl.dataset.auto === '1') && isValidOnchainVal('puell', data.onchain['puell'])) {
+    puellEl.value = data.onchain['puell']; puellEl.dataset.auto = '1';
+  }
+
+  renderOnchainMetricsGrid(data.onchain);
+  if (typeof renderCycle === 'function') renderCycle();
+  if (typeof updateDashOnchainCard === 'function') updateDashOnchainCard();
+}
+
+function renderOnchainMetricsGrid(onchain) {
+  var grid = document.getElementById('cycle-metrics-grid');
+  if (!grid) return;
+  grid.innerHTML = ONCHAIN_METRICS_CONFIG.map(function(m) {
+    var val = onchain ? onchain[m.key] : null;
+    if (val == null || isNaN(val)) {
+      return '<div class="metric-mini-card" onclick="openMetricDetail(\'' + m.key + '\')">' +
+        '<div class="metric-mini-name">' + m.name + '</div>' +
+        '<div class="metric-mini-val" style="color:var(--text3)">–</div>' +
+        '<div class="metric-mini-status" style="color:var(--text3)">Data tidak tersedia</div></div>';
+    }
+    var zone = m.zone(val);
+    return '<div class="metric-mini-card" onclick="openMetricDetail(\'' + m.key + '\')">' +
+      '<div class="metric-mini-name">' + m.name + '</div>' +
+      '<div class="metric-mini-val" style="color:' + zone.c + '">' + m.fmt(val) + '</div>' +
+      '<div class="metric-mini-status" style="color:' + zone.c + '">' + zone.l + '</div></div>';
+  }).join('');
+}
+
+function openMetricDetail(key) {
+  var m = ONCHAIN_METRICS_CONFIG.find(function(x){ return x.key === key; });
+  if (!m) return;
+  var cached = readCycleCache();
+  var val = cached && cached.onchain ? cached.onchain[key] : null;
+  var body = document.getElementById('metric-detail-body');
+  var valText = (val != null && !isNaN(val)) ? m.fmt(val) : 'Data tidak tersedia saat ini';
+  var zone = (val != null && !isNaN(val)) ? m.zone(val) : { c: 'var(--text3)', l: '' };
+  body.innerHTML =
+    '<div style="font-size:10px;color:var(--text3);font-weight:700;letter-spacing:0.5px;text-transform:uppercase;margin-bottom:4px">' + m.name + '</div>' +
+    '<div style="font-family:var(--mono);font-size:26px;font-weight:600;color:' + zone.c + ';margin-bottom:2px">' + valText + '</div>' +
+    (zone.l ? '<div style="font-size:12px;color:' + zone.c + ';font-weight:700;margin-bottom:12px">' + zone.l + '</div>' : '<div style="margin-bottom:12px"></div>') +
+    '<div style="font-size:12.5px;color:var(--text2);line-height:1.6">' + m.desc + '</div>';
+  document.getElementById('metric-detail-overlay').style.display = 'flex';
+}
+
+function closeMetricDetail() {
+  document.getElementById('metric-detail-overlay').style.display = 'none';
+}
+
 function calcCycleScore(fgScore, mvrvScore, nuplScore) {
   if (fgScore === null || mvrvScore === null || nuplScore === null) return null;
   return Math.round(fgScore * 0.35 + mvrvScore * 0.35 + nuplScore * 0.30);
 }
 
+// ── Accumulation Score: tinggi = kondisi menarik untuk akumulasi ──
+// Score 0–100, BUKAN cycle position. Harus dibaca terbalik dari intuisi:
+// Saat F&G rendah (fear), MVRV rendah (undervalued), NUPL rendah (pain) → score TINGGI = zona beli
 function cycleScoreStatus(score) {
-  if (score === null) return { label: '–', cls: 'reco-green', action: '–', desc: '–' };
-  if (score >= 80) return { label: '🟢 Strong Accumulation', cls: 'reco-green', action: 'DCA Normal + AMMO Agresif', desc: 'Market dalam zona akumulasi kuat. Gunakan AMMO budget lebih agresif saat ada dip. DCA tetap jalan.' };
-  if (score >= 60) return { label: '🟢 Accumulation', cls: 'reco-green', action: 'DCA Normal', desc: 'Kondisi baik untuk akumulasi. DCA rutin, hold AMMO untuk peluang dip lebih dalam.' };
-  if (score >= 40) return { label: '🟡 Neutral', cls: 'reco-yellow', action: 'DCA Normal, Simpan AMMO', desc: 'Market dalam zona netral. DCA tetap jalan, tapi simpan sebagian AMMO. Pantau indikator.' };
-  if (score >= 20) return { label: '🟠 Caution', cls: 'reco-orange', action: 'Kurangi Pembelian Tambahan', desc: 'Market mulai memanas. Kurangi atau stop tambahan di luar DCA rutin. Siapkan strategi exit.' };
-  return { label: '🔴 Euphoria / Take Profit Zone', cls: 'reco-red', action: 'Pertimbangkan Profit Taking', desc: 'Market dalam zona euforia. Pertimbangkan realisasi sebagian profit sesuai exit strategy.' };
+  if (score === null) return { label: '–', cls: 'reco-green', action: '–', desc: '–', color: 'var(--text3)' };
+  if (score >= 81) return {
+    label: '🟢 Strong Accumulation',
+    color: 'var(--green)',
+    cls: 'reco-green',
+    action: 'DCA Agresif + Gunakan AMMO Penuh',
+    desc: 'Semua indikator menunjukkan kondisi sangat menarik untuk akumulasi. Fear tinggi, MVRV & NUPL rendah — secara historis ini area terbaik untuk beli jangka panjang.'
+  };
+  if (score >= 61) return {
+    label: '🟢 Accumulation',
+    color: 'var(--green)',
+    cls: 'reco-green',
+    action: 'DCA Normal + Siapkan AMMO untuk Dip',
+    desc: 'Kondisi baik untuk akumulasi. Indikator onchain masih di zona undervalued/fear. Lanjutkan DCA rutin dan pegang AMMO untuk peluang dip lebih dalam.'
+  };
+  if (score >= 41) return {
+    label: '🟡 Neutral / Transitional',
+    color: 'var(--yellow)',
+    cls: 'reco-yellow',
+    action: 'DCA Normal, Monitor Indikator',
+    desc: 'Pasar dalam fase transisi. Tidak terlalu murah, tidak terlalu mahal. DCA tetap jalan, mulai pantau pergerakan MVRV dan NUPL.'
+  };
+  if (score >= 21) return {
+    label: '🟠 Distribution Zone',
+    color: 'var(--orange)',
+    cls: 'reco-orange',
+    action: 'Kurangi Akumulasi, Siapkan Exit Plan',
+    desc: 'Indikator mulai menunjukkan overvaluation. F&G tinggi (greed), MVRV & NUPL elevated. Kurangi pembelian tambahan di luar DCA rutin. Aktifkan exit strategy bertahap.'
+  };
+  return {
+    label: '🔴 Extreme Overheated',
+    color: 'var(--red)',
+    cls: 'reco-red',
+    action: 'Pertimbangkan Profit Taking',
+    desc: 'Semua indikator menunjukkan pasar sangat overvalued / euphoria. Pertimbangkan realisasi sebagian profit sesuai exit strategy yang sudah direncanakan.'
+  };
+}
+
+// ── Cycle Position: fase BTC berdasarkan raw values indikator ──
+// TERPISAH dari Accumulation Score — tidak boleh hanya dari satu angka
+// fg: 0-100, mvrv: Z-Score, nupl: -0.5 to 1
+function calcCyclePosition(fg, mvrv, nupl) {
+  // Butuh minimal 2 dari 3 indikator
+  var available = [fg !== null, mvrv !== null, nupl !== null].filter(Boolean).length;
+  if (available < 2) return null;
+
+  // Skor parsial per indikator (0=bottom, 10=top cycle)
+  var scores = [];
+
+  if (fg !== null) {
+    // F&G: rendah = bottom, tinggi = top
+    if (fg <= 15) scores.push(0);
+    else if (fg <= 30) scores.push(1.5);
+    else if (fg <= 45) scores.push(3);
+    else if (fg <= 55) scores.push(5);
+    else if (fg <= 70) scores.push(7);
+    else if (fg <= 85) scores.push(8.5);
+    else scores.push(10);
+  }
+
+  if (mvrv !== null) {
+    // MVRV Z-Score: negatif=bottom, >6=top
+    if (mvrv < 0)   scores.push(0);
+    else if (mvrv < 0.5) scores.push(1);
+    else if (mvrv < 1)   scores.push(2);
+    else if (mvrv < 2)   scores.push(3.5);
+    else if (mvrv < 3)   scores.push(5);
+    else if (mvrv < 5)   scores.push(7);
+    else if (mvrv < 7)   scores.push(8.5);
+    else scores.push(10);
+  }
+
+  if (nupl !== null) {
+    // NUPL: <0=capitulation, >0.75=euphoria
+    if (nupl < 0)     scores.push(0);
+    else if (nupl < 0.15) scores.push(1.5);
+    else if (nupl < 0.35) scores.push(3);
+    else if (nupl < 0.5)  scores.push(5);
+    else if (nupl < 0.65) scores.push(7);
+    else if (nupl < 0.75) scores.push(8.5);
+    else scores.push(10);
+  }
+
+  var avg = scores.reduce(function(a,b){ return a+b; }, 0) / scores.length;
+
+  if (avg <= 1)   return { label: '🔴 Capitulation', color: 'var(--red)',    desc: 'Pasar dalam kapitulasi. Mayoritas holder merugi. Secara historis area akumulasi terbaik.' };
+  if (avg <= 2.5) return { label: '🟢 Accumulation', color: 'var(--green)',  desc: 'Fase akumulasi. Fear dominan, harga masih di bawah realized value. Holder jangka panjang aktif beli.' };
+  if (avg <= 4)   return { label: '🟢 Early Recovery', color: 'var(--green)', desc: 'Pemulihan awal. Sentimen mulai membaik, MVRV & NUPL bergerak naik dari zona bawah.' };
+  if (avg <= 6)   return { label: '🟡 Expansion', color: 'var(--yellow)',    desc: 'Fase ekspansi / bull market. Momentum positif, sentimen netral ke optimis.' };
+  if (avg <= 8)   return { label: '🟠 Late Bull / Pre-Peak', color: 'var(--orange)', desc: 'Bull market tahap akhir. Sentimen mulai greedy, MVRV & NUPL elevated. Siapkan exit plan.' };
+  return           { label: '🔴 Distribution / Euphoria', color: 'var(--red)', desc: 'Fase distribusi/euforia. Indikator semua di zona panas. Pertimbangkan profit taking.' };
+}
+
+// ── Data source badge ──
+function getDataSourceBadge(fg, mvrv, nupl) {
+  var fgEl   = document.getElementById('ci-fg');
+  var mvrvEl = document.getElementById('ci-mvrv');
+  var nuplEl = document.getElementById('ci-nupl');
+  var hasManual = (fgEl && fgEl.dataset.auto !== '1' && fgEl.value !== '') ||
+                  (mvrvEl && mvrvEl.dataset.auto !== '1' && mvrvEl.value !== '') ||
+                  (nuplEl && nuplEl.dataset.auto !== '1' && nuplEl.value !== '');
+  var cached = readCycleCache ? readCycleCache() : null;
+  var ageMs  = cached ? Date.now() - cached.fetchedAt : Infinity;
+  var isStale = ageMs > 6 * 60 * 60 * 1000; // >6 jam = stale
+  if (fg === null && mvrv === null && nupl === null) return { text: 'NO DATA', color: 'var(--red)' };
+  if (hasManual)  return { text: 'MANUAL', color: 'var(--blue)' };
+  if (isStale)    return { text: 'STALE (' + Math.round(ageMs/3600000) + 'h ago)', color: 'var(--orange)' };
+  if (ageMs < 5 * 60 * 1000) return { text: 'LIVE', color: 'var(--green)' };
+  return { text: 'CACHED', color: 'var(--yellow)' };
 }
 
 function renderCycle() {
   saveCycleInputs();
+  updateDashOnchainCard();
 
   const fgRaw = document.getElementById('ci-fg')?.value;
   const mvrvRaw = document.getElementById('ci-mvrv')?.value;
@@ -4256,25 +5173,57 @@ function renderCycle() {
 
   const cycleScore = calcCycleScore(fgR.score, mvrvR.score, nuplR.score);
   const status = cycleScoreStatus(cycleScore);
+  const cyclePos = calcCyclePosition(fg, mvrv, nupl);
+  const dataBadge = getDataSourceBadge(fg, mvrv, nupl);
 
   // Score display
   const scoreEl = document.getElementById('cycle-score-display');
   if (cycleScore !== null) {
-    const sColor = cycleScore >= 60 ? 'var(--green)' : cycleScore >= 40 ? 'var(--yellow)' : cycleScore >= 20 ? 'var(--orange)' : 'var(--red)';
+    const sColor = status.color;
+    const cpColor = cyclePos ? cyclePos.color : 'var(--text3)';
+    const cpLabel = cyclePos ? cyclePos.label : '– Insufficient Data';
+    const cpDesc  = cyclePos ? cyclePos.desc  : 'Butuh minimal 2 dari 3 indikator (F&G, MVRV, NUPL) untuk menentukan posisi siklus.';
+
     scoreEl.innerHTML = `
       <div class="cycle-score-wrap">
         <div class="cycle-score-big" style="color:${sColor}">${cycleScore}</div>
-        <div style="flex:1">
-          <div style="font-size:11px;color:var(--text3);font-weight:600;letter-spacing:0.4px;margin-bottom:6px">BTC CYCLE SCORE</div>
-          <div style="font-size:15px;font-weight:700;color:${sColor}">${status.label}</div>
-          <div style="margin-top:8px;background:var(--bg3);border-radius:4px;height:6px;overflow:hidden">
+        <div style="flex:1;min-width:0">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+            <div style="font-size:10px;color:var(--text3);font-weight:700;letter-spacing:0.5px;text-transform:uppercase">ACCUMULATION SCORE</div>
+            <span style="font-size:9px;font-weight:700;padding:2px 7px;border-radius:10px;background:rgba(0,0,0,0.2);color:${dataBadge.color};border:1px solid ${dataBadge.color}">${dataBadge.text}</span>
+          </div>
+          <div style="font-size:16px;font-weight:700;color:${sColor};margin-bottom:2px">${status.label}</div>
+          <div style="font-size:10px;color:var(--text3);margin-bottom:8px">${cycleScore}/100 — semakin tinggi = semakin menarik untuk akumulasi</div>
+          <div style="background:var(--bg3);border-radius:4px;height:6px;overflow:hidden;margin-bottom:10px">
             <div style="height:100%;border-radius:4px;width:${cycleScore}%;background:${sColor};transition:width 0.7s ease"></div>
           </div>
-          <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--text3);margin-top:3px"><span>0</span><span>50</span><span>100</span></div>
+          <div style="display:flex;justify-content:space-between;font-size:8px;color:var(--text3);margin-bottom:2px">
+            <span>0 — Overheated</span><span>50 — Neutral</span><span>100 — Strong Accum.</span>
+          </div>
         </div>
+      </div>
+      <div style="border-top:1px solid var(--border2);margin-top:12px;padding-top:12px">
+        <div style="font-size:10px;color:var(--text3);font-weight:700;letter-spacing:0.5px;text-transform:uppercase;margin-bottom:6px">📍 CYCLE POSITION <span style="font-weight:400;font-size:9px">(berdasarkan nilai raw indikator)</span></div>
+        <div style="font-size:15px;font-weight:700;color:${cpColor};margin-bottom:4px">${cpLabel}</div>
+        <div style="font-size:11px;color:var(--text2);line-height:1.5">${cpDesc}</div>
       </div>`;
   } else {
-    scoreEl.innerHTML = `<div class="card" style="text-align:center;color:var(--text3);padding:16px;font-size:13px">Masukkan Fear & Greed, MVRV, dan NUPL untuk Cycle Score</div>`;
+    var missingList = [];
+    if (fg === null) missingList.push('Fear & Greed');
+    if (mvrv === null) missingList.push('MVRV Z-Score');
+    if (nupl === null) missingList.push('NUPL');
+    scoreEl.innerHTML = '<div class="card" style="padding:14px">'
+      + '<div style="font-size:12px;font-weight:700;color:var(--text2);margin-bottom:6px">⏳ Menunggu data: ' + missingList.join(', ') + '</div>'
+      + '<div style="font-size:11px;color:var(--text3);line-height:1.6;margin-bottom:10px">'
+      + 'API sedang dimuat. Jika tetap kosong, isi manual di kotak "Input Manual" di bawah.<br>'
+      + '<b style="color:var(--gold)">Referensi nilai Mei 2026: MVRV ≈ 0.41 · NUPL ≈ 0.28 · Puell ≈ 0.80</b>'
+      + '</div>'
+      + '<div style="display:flex;gap:8px;flex-wrap:wrap">'
+      + '<a href="https://www.lookintobitcoin.com/charts/mvrv-zscore/" target="_blank" style="font-size:10px;color:var(--blue);padding:4px 8px;border:1px solid var(--border2);border-radius:6px;text-decoration:none">📊 Cek MVRV</a>'
+      + '<a href="https://charts.bitbo.io/nupl/" target="_blank" style="font-size:10px;color:var(--blue);padding:4px 8px;border:1px solid var(--border2);border-radius:6px;text-decoration:none">📈 Cek NUPL</a>'
+      + '<a href="https://charts.bitbo.io/puell-multiple/" target="_blank" style="font-size:10px;color:var(--blue);padding:4px 8px;border:1px solid var(--border2);border-radius:6px;text-decoration:none">⛏️ Cek Puell</a>'
+      + '</div>'
+      + '</div>';
   }
 
   // Indicators detail
@@ -4300,11 +5249,24 @@ function renderCycle() {
   `).join('');
 
   // Recommendation
-  document.getElementById('cycle-recommendation').innerHTML = cycleScore !== null ? `
-    <div class="reco-card ${status.cls}">
-      <div class="reco-action" style="color:${cycleScore>=60?'var(--green)':cycleScore>=40?'var(--yellow)':cycleScore>=20?'var(--orange)':'var(--red)'}">${status.action}</div>
-      <div class="reco-desc">${status.desc}</div>
-    </div>` : `<div class="card" style="text-align:center;color:var(--text3);padding:16px;font-size:13px">Lengkapi indikator untuk rekomendasi</div>`;
+  if (cycleScore !== null) {
+    var cpHtml = cyclePos
+      ? '<div style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.08)">'
+        + '<div style="font-size:9px;color:var(--text3);font-weight:700;letter-spacing:0.5px;text-transform:uppercase;margin-bottom:4px">📍 Cycle Position</div>'
+        + '<div style="font-size:12px;font-weight:700;color:' + cyclePos.color + ';margin-bottom:3px">' + cyclePos.label + '</div>'
+        + '<div style="font-size:11px;color:var(--text2);line-height:1.5">' + cyclePos.desc + '</div>'
+        + '</div>'
+      : '';
+    document.getElementById('cycle-recommendation').innerHTML =
+      '<div class="reco-card ' + status.cls + '">'
+      + '<div class="reco-action" style="color:' + status.color + '">' + status.action + '</div>'
+      + '<div class="reco-desc">' + status.desc + '</div>'
+      + cpHtml
+      + '</div>';
+  } else {
+    document.getElementById('cycle-recommendation').innerHTML =
+      '<div class="card" style="text-align:center;color:var(--text3);padding:16px;font-size:13px">Lengkapi indikator untuk rekomendasi</div>';
+  }
 
   // Halving countdown
   const halvingDate = new Date('2028-04-15');
@@ -4339,6 +5301,7 @@ function renderAll() {
   updateTicker();
 
   if (typeof window._restoreFirebaseStatus === "function") window._restoreFirebaseStatus();
+  if (typeof updateDashOnchainCard === "function") updateDashOnchainCard();
 }
 
 function renderDashboard() {
@@ -4604,6 +5567,8 @@ function renderExit() {
 
 function loadSettings() {
   const s = STATE.settings;
+  const bgTokenEl = document.getElementById('s-bg-token');
+  if (bgTokenEl) bgTokenEl.value = getBgToken();
   document.getElementById('s-dca').value = s.dcaBulanan;
   document.getElementById('s-ammo-total').value = s.ammoTotal;
   document.getElementById('s-t1').value = s.targetKonservatif;
@@ -5807,8 +6772,15 @@ function showTab(name) {
   if (pageEl) pageEl.classList.add('active');
   window.scrollTo(0,0);
   if (name === 'grafik') setTimeout(() => renderCharts(), 50);
+  if (name === 'harian') setTimeout(() => { if (typeof renderRealtimeChart === 'function') renderRealtimeChart(); }, 50);
   if (name === 'analitik') setTimeout(() => renderAnalitik(), 50);
-  if (name === 'cycle') { loadCycleInputs(); renderCycle(); }
+  if (name === 'cycle') {
+    loadCycleInputs();
+    const cached = readCycleCache();
+    if (cached) { renderOnchainMetricsGrid(cached.onchain); applyCycleData(cached); }
+    else renderCycle();
+    refreshCycleData(false); // pakai cache kalau masih segar (<24 jam), fetch kalau basi
+  }
   if (name === 'laporan') renderLaporan();
   if (name === 'dashboard') { renderDashboard(); setTimeout(renderFMKPIs, 50); renderHealthScore(); }
   if (name === 'pengaturan') setTimeout(() => { updateBackupInfo(); gistLoadConfig(); }, 50);
@@ -6047,5 +7019,601 @@ gistLoadConfig();
 </script>
 </div><!-- end main-content -->
 </div><!-- end app-wrapper -->
+<script>
+// ══════════════════════════════════════════════════════
+// LIVE BTC PRICE — CoinGecko → Binance → Coinbase → Kraken
+// (4 sumber berantai, tiap sumber punya batas waktu 6 detik
+//  supaya tidak nge-hang kalau salah satu sumber lambat)
+// ══════════════════════════════════════════════════════
+window._livePrice = { usd: 0, idr: 0, lastUpdate: 0, loading: false, source: '', stale: false };
+window._liveHistory = []; // {t: ms, usd: number}
+window._liveErrors = []; // log of per-source failure reasons, for diagnostics
+window._liveRetryCount = 0; // untuk backoff otomatis saat semua sumber gagal
+
+// Pulihkan harga terakhir yang berhasil disimpan (kalau ada) supaya dashboard
+// tidak langsung menunjukkan $0 / kosong sebelum fetch pertama selesai.
+(function restoreCachedPrice() {
+  try {
+    var cached = JSON.parse(localStorage.getItem('lastLivePrice') || 'null');
+    if (cached && cached.usd > 0) {
+      window._livePrice.usd = cached.usd;
+      window._livePrice.idr = cached.idr || Math.round(cached.usd * 17900);
+      window._livePrice.lastUpdate = cached.lastUpdate || 0;
+      window._livePrice.source = cached.source || '';
+      window._livePrice.stale = true;
+    }
+  } catch(e) {}
+})();
+
+function fetchWithTimeout(url, ms) {
+  ms = ms || 8000;
+  var controller = new AbortController();
+  var timer = setTimeout(function(){ controller.abort(); }, ms);
+  return fetch(url, { cache: 'no-store', signal: controller.signal, referrerPolicy: 'no-referrer' })
+    .finally(function(){ clearTimeout(timer); });
+}
+
+// Ambil histori 24 jam terakhir sekali di awal, supaya grafik langsung
+// terlihat bagus (bukan cuma 1 titik) sebelum data live mulai menumpuk.
+async function seedLiveHistory() {
+  try {
+    var res = await fetchWithTimeout('https://api.coingecko.com/api/v3/coins/bitcoin/market_chart?vs_currency=usd&days=1', 8000);
+    if (res.ok) {
+      var d = await res.json();
+      if (d && Array.isArray(d.prices) && d.prices.length > 1) {
+        var pts = d.prices; // [[timestamp_ms, price], ...]
+        var maxPoints = 48;
+        var step = Math.max(1, Math.floor(pts.length / maxPoints));
+        var sampled = [];
+        for (var i = 0; i < pts.length; i += step) sampled.push(pts[i]);
+        var last = pts[pts.length - 1];
+        if (!sampled.length || sampled[sampled.length - 1][0] !== last[0]) sampled.push(last);
+        window._liveHistory = sampled.map(function(p) { return { t: p[0], usd: p[1] }; });
+      }
+    }
+  } catch(e) { console.warn('[LiveHistory] Gagal ambil histori 24 jam, grafik mulai dari kosong:', e.message); }
+}
+
+function pushLivePoint(usd) {
+  if (!usd || usd <= 0) return;
+  window._liveHistory.push({ t: Date.now(), usd: usd });
+  if (window._liveHistory.length > 200) window._liveHistory = window._liveHistory.slice(-200);
+}
+
+// Setiap sumber: { name, url, parse(json) => usd atau null }
+// Urutan dipilih dari yang paling jarang diblokir CORS/firewall ke yang paling sering.
+var LIVE_PRICE_SOURCES = [
+  {
+    name: 'CoinGecko',
+    url: 'https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd,idr',
+    parse: function(d) {
+      if (d && d.bitcoin && d.bitcoin.usd) return { usd: d.bitcoin.usd, idr: d.bitcoin.idr || null };
+      return null;
+    }
+  },
+  {
+    name: 'Coinbase',
+    url: 'https://api.coinbase.com/v2/prices/BTC-USD/spot',
+    parse: function(d) {
+      if (d && d.data && d.data.amount) return { usd: parseFloat(d.data.amount), idr: null };
+      return null;
+    }
+  },
+  {
+    name: 'Binance',
+    url: 'https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT',
+    parse: function(d) {
+      if (d && d.price) return { usd: parseFloat(d.price), idr: null };
+      return null;
+    }
+  },
+  {
+    name: 'Kraken',
+    url: 'https://api.kraken.com/0/public/Ticker?pair=XBTUSD',
+    parse: function(d) {
+      if (d && d.result && d.result.XXBTZUSD && d.result.XXBTZUSD.c) return { usd: parseFloat(d.result.XXBTZUSD.c[0]), idr: null };
+      return null;
+    }
+  },
+  {
+    name: 'CryptoCompare',
+    url: 'https://min-api.cryptocompare.com/data/price?fsym=BTC&tsyms=USD,IDR',
+    parse: function(d) {
+      if (d && d.USD) return { usd: d.USD, idr: d.IDR || null };
+      return null;
+    }
+  },
+  {
+    name: 'Bitstamp',
+    url: 'https://www.bitstamp.net/api/v2/ticker/btcusd/',
+    parse: function(d) {
+      if (d && d.last) return { usd: parseFloat(d.last), idr: null };
+      return null;
+    }
+  }
+];
+
+async function fetchLivePrice() {
+  if (window._livePrice.loading) return;
+  window._livePrice.loading = true;
+  window._liveErrors = [];
+  updateLivePriceUI('loading');
+
+  var usdRate = 17900; // estimasi kurs USD->IDR untuk sumber yang tidak sediakan IDR langsung
+
+  // Deteksi lebih dulu kalau browser memang sedang offline —
+  // supaya pesan error yang muncul lebih tepat sasaran.
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    window._liveErrors.push('Browser mendeteksi tidak ada koneksi internet (offline).');
+    window._livePrice.loading = false;
+    window._liveRetryCount++;
+    updateLivePriceUI('error');
+    scheduleLiveRetry();
+    return;
+  }
+
+  for (var i = 0; i < LIVE_PRICE_SOURCES.length; i++) {
+    var src = LIVE_PRICE_SOURCES[i];
+    try {
+      var res = await fetchWithTimeout(src.url, 8000);
+      if (!res.ok) {
+        window._liveErrors.push(src.name + ': HTTP ' + res.status);
+        continue;
+      }
+      var json = await res.json();
+      var parsed = src.parse(json);
+      if (parsed && parsed.usd > 0) {
+        window._livePrice.usd = parsed.usd;
+        window._livePrice.idr = parsed.idr || Math.round(parsed.usd * usdRate);
+        window._livePrice.lastUpdate = Date.now();
+        window._livePrice.loading = false;
+        window._livePrice.source = src.name;
+        window._livePrice.stale = false;
+        window._liveRetryCount = 0;
+        pushLivePoint(window._livePrice.usd);
+        try {
+          localStorage.setItem('lastLivePrice', JSON.stringify({
+            usd: window._livePrice.usd, idr: window._livePrice.idr,
+            lastUpdate: window._livePrice.lastUpdate, source: src.name
+          }));
+        } catch(e) {}
+        updateLivePriceUI('ok');
+        return;
+      } else {
+        window._liveErrors.push(src.name + ': respons tidak sesuai format yang diharapkan');
+      }
+    } catch (e) {
+      // AbortError = timeout. TypeError "Failed to fetch" biasanya berarti
+      // request diblokir sebelum sampai ke server (CORS, ekstensi/antivirus, atau offline).
+      var reason = e.name === 'AbortError' ? 'timeout (>8 detik)' : (e.message || 'gagal fetch (kemungkinan diblokir CORS/ekstensi/antivirus)');
+      window._liveErrors.push(src.name + ': ' + reason);
+      console.warn('[LivePrice] ' + src.name + ' gagal:', reason);
+    }
+  }
+
+  // Semua sumber gagal
+  window._livePrice.loading = false;
+  window._liveRetryCount++;
+  updateLivePriceUI('error');
+  scheduleLiveRetry();
+}
+
+// Auto-retry dengan backoff singkat (5s, 10s, 20s, maks 30s) ketika SEMUA sumber gagal,
+// supaya gangguan sesaat (mis. satu API kena rate-limit) langsung pulih sendiri
+// tanpa user harus klik "Coba Lagi" manual. Interval normal (60s) tetap berjalan terpisah.
+var _liveRetryTimer = null;
+function scheduleLiveRetry() {
+  if (_liveRetryTimer) clearTimeout(_liveRetryTimer);
+  if (window._liveRetryCount > 5) return; // stop auto-retry setelah 5x gagal berturut-turut
+  var delay = Math.min(30000, 5000 * window._liveRetryCount);
+  _liveRetryTimer = setTimeout(function() {
+    if (!window._livePrice.usd || window._livePrice.stale || Date.now() - window._livePrice.lastUpdate > 90000) {
+      fetchLivePrice();
+    }
+  }, delay);
+}
+
+function updateLivePriceUI(status) {
+  var usd = window._livePrice.usd;
+  var idr = window._livePrice.idr;
+
+  // Update ticker di header
+  var ticker = document.getElementById('live-price-ticker');
+  if (ticker) {
+    if (status === 'loading') {
+      ticker.innerHTML = '<span style="color:var(--text3);font-size:10px">Memuat harga...</span>';
+    } else if (status === 'ok') {
+      var usdStr = '$' + usd.toLocaleString('en-US', {minimumFractionDigits:0, maximumFractionDigits:0});
+      var idrStr = 'Rp ' + idr.toLocaleString('id-ID');
+      ticker.innerHTML = '<span style="color:var(--gold);font-weight:700;font-size:11px">' + usdStr + '</span>'
+        + '<span style="color:var(--text3);font-size:9px;margin-left:4px">' + idrStr + '</span>'
+        + '<span style="color:var(--green);font-size:8px;margin-left:4px">LIVE</span>';
+    } else if (usd > 0) {
+      var usdStr2 = '$' + usd.toLocaleString('en-US', {minimumFractionDigits:0, maximumFractionDigits:0});
+      ticker.innerHTML = '<span style="color:var(--text3);font-weight:700;font-size:11px">' + usdStr2 + '</span>'
+        + '<span style="color:var(--red);font-size:8px;margin-left:4px">⚠ OFFLINE</span>';
+    } else {
+      ticker.innerHTML = '<span style="color:var(--red);font-size:10px">Harga N/A</span>';
+    }
+  }
+
+  // Update live price card di dashboard
+  var liveCard = document.getElementById('live-price-card');
+  if (liveCard) {
+    if (status === 'ok') {
+      var latest = getLatestBulanan();
+      var avg = latest ? (latest.avgPrice || 0) : 0;
+      var drop = avg > 0 ? ((usd - avg) / avg * 100) : 0;
+      var dropColor = drop >= 0 ? 'var(--green)' : 'var(--red)';
+      var dropSign = drop >= 0 ? '+' : '';
+      var src2 = window._livePrice.source || 'CoinGecko';
+      var usdFmt = '$' + usd.toLocaleString('en-US');
+      var idrFmt = 'Rp ' + idr.toLocaleString('id-ID');
+      var dropFmt = dropSign + drop.toFixed(2) + '%';
+
+      var html = '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">';
+      html += '<div style="font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--text3)">Harga BTC Live</div>';
+      html += '<div style="display:flex;align-items:center;gap:6px">';
+      html += '<span style="width:6px;height:6px;border-radius:50%;background:var(--green);display:inline-block;animation:pulse-dot 2s infinite"></span>';
+      html += '<span style="font-size:9px;color:var(--text3)">' + src2 + '</span>';
+      html += '</div></div>';
+      html += '<div style="font-family:var(--mono);font-size:28px;font-weight:700;color:var(--gold);letter-spacing:-1px">' + usdFmt + '</div>';
+      html += '<div style="font-family:var(--mono);font-size:13px;color:var(--text2);margin-top:2px">' + idrFmt + '</div>';
+      html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-top:10px">';
+      html += '<div style="font-size:11px;color:var(--text3)">vs Avg. Price Anda</div>';
+      html += '<div style="font-size:13px;font-weight:700;color:' + dropColor + '">' + dropFmt + '</div>';
+      html += '</div>';
+      html += '<button onclick="useCurrentPrice()" style="width:100%;margin-top:10px;padding:9px;background:var(--gold-dim);color:var(--gold);border:1px solid rgba(247,147,26,0.3);border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;font-family:var(--sans)">';
+      html += 'Pakai Harga Ini untuk Input Harian</button>';
+      liveCard.innerHTML = html;
+
+    } else if (status === 'loading') {
+      liveCard.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text3);font-size:12px">Memuat harga live...</div>';
+    } else {
+      // Kalau kita punya harga tersimpan sebelumnya (dari localStorage / sesi sebelumnya),
+      // tetap tampilkan itu sebagai "harga terakhir diketahui" alih-alih blank / N/A total —
+      // jauh lebih berguna daripada tidak menampilkan apa-apa.
+      var lastKnown = usd > 0
+        ? '<div style="font-family:var(--mono);font-size:22px;font-weight:700;color:var(--text3);letter-spacing:-1px">$' + usd.toLocaleString('en-US') + '</div>'
+          + '<div style="font-size:10px;color:var(--text3);margin-top:2px">Harga terakhir diketahui' + (window._livePrice.lastUpdate ? ' · ' + new Date(window._livePrice.lastUpdate).toLocaleTimeString('id-ID') : '') + ' (tidak live)</div>'
+        : '';
+      var errDetail = (window._liveErrors && window._liveErrors.length)
+        ? '<details style="margin-top:8px;text-align:left"><summary style="cursor:pointer;font-size:10px;color:var(--text3)">Lihat detail error</summary>'
+          + '<div style="font-size:10px;color:var(--text3);margin-top:6px;line-height:1.6;font-family:var(--mono)">' + window._liveErrors.map(function(e){return '• '+e;}).join('<br>') + '</div>'
+          + '<div style="font-size:10px;color:var(--text2);margin-top:8px;line-height:1.6">Penyebab paling umum: (1) antivirus/ekstensi browser (mis. ad-blocker atau proteksi anti-scam) memblokir domain API harga crypto, (2) firewall jaringan/kantor memblokir binance.com atau coingecko.com, (3) tidak ada koneksi internet, atau (4) semua API sedang rate-limited bersamaan. Coba nonaktifkan sementara ekstensi keamanan browser, atau buka lewat jaringan lain.</div></details>'
+        : '';
+      liveCard.innerHTML = '<div style="text-align:center;padding:16px">'
+        + '<div style="color:var(--red);font-size:13px;margin-bottom:8px">⚠️ Gagal memuat harga live dari semua sumber</div>'
+        + lastKnown
+        + '<button onclick="fetchLivePrice()" style="padding:8px 16px;margin-top:10px;background:var(--card2);color:var(--text);border:1px solid var(--border2);border-radius:8px;cursor:pointer;font-size:12px">🔄 Coba Lagi</button>'
+        + errDetail
+        + '</div>';
+    }
+  }
+
+  // Auto-fill input harga jika kosong
+  if (status === 'ok' && usd > 0) {
+    var rounded = Math.round(usd);
+    var inputs = ['h-price','b-price','a-price','e-current'];
+    inputs.forEach(function(id) {
+      var el = document.getElementById(id);
+      if (el && !el.value) el.value = rounded;
+    });
+  }
+
+  renderRealtimeCard(status);
+
+  // Begitu harga live baru masuk, langsung update angka P&L / portfolio value
+  // di Dashboard (dan KPI terkait) tanpa perlu pindah tab atau refresh manual.
+  if (status === 'ok') {
+    if (typeof renderDashboard === 'function') renderDashboard();
+    if (typeof renderHealthScore === 'function') renderHealthScore();
+    if (typeof renderFMKPIs === 'function') renderFMKPIs();
+    if (typeof updateTicker === 'function') updateTicker();
+    if (typeof updateDashOnchainCard === 'function') updateDashOnchainCard();
+  }
+}
+
+// ══════════════════════════════════════════════════════
+// KARTU + GRAFIK REAL-TIME di tab "Harian"
+// ══════════════════════════════════════════════════════
+function renderRealtimeCard(status) {
+  var usd = window._livePrice.usd;
+  var idr = window._livePrice.idr;
+  var src = window._livePrice.source || '–';
+
+  var elUsd = document.getElementById('rt-price-usd');
+  var elIdr = document.getElementById('rt-price-idr');
+  var elSub = document.getElementById('rt-subtitle');
+  var elUpdated = document.getElementById('rt-updated');
+  var elBadge = document.getElementById('rt-change-badge');
+  var elDot = document.getElementById('rt-live-dot');
+  if (!elUsd) return; // kartu belum ada di DOM
+
+  if (status === 'error') {
+    if (elSub) elSub.textContent = 'Gagal memuat — semua sumber harga tidak merespon';
+    if (elDot) elDot.style.background = 'var(--red)';
+    return;
+  }
+  if (elDot) elDot.style.background = 'var(--green)';
+
+  if (status === 'loading' && !usd) {
+    if (elSub) elSub.textContent = 'Menghubungkan ke sumber harga...';
+    return;
+  }
+
+  if (elSub) elSub.textContent = 'Sumber: ' + src;
+  if (elUpdated && window._livePrice.lastUpdate) {
+    elUpdated.textContent = 'Update terakhir: ' + new Date(window._livePrice.lastUpdate).toLocaleTimeString('id-ID', {hour:'2-digit', minute:'2-digit', second:'2-digit'});
+  }
+
+  if (usd > 0) {
+    var prevVal = parseFloat((elUsd.dataset.raw || usd));
+    elUsd.textContent = '$' + usd.toLocaleString('en-US', {minimumFractionDigits:0, maximumFractionDigits:0});
+    elUsd.dataset.raw = usd;
+    var flashColor = usd > prevVal ? 'var(--green)' : (usd < prevVal ? 'var(--red)' : 'var(--gold)');
+    elUsd.style.color = flashColor;
+    setTimeout(function(){ if (elUsd) elUsd.style.color = 'var(--gold)'; }, 800);
+  }
+  if (elIdr && idr) elIdr.textContent = 'Rp ' + idr.toLocaleString('id-ID');
+
+  if (elBadge && window._liveHistory.length > 1) {
+    var first = window._liveHistory[0].usd;
+    var change = first > 0 ? ((usd - first) / first * 100) : 0;
+    var up = change >= 0;
+    elBadge.style.display = 'inline-block';
+    elBadge.textContent = (up ? '▲ +' : '▼ ') + change.toFixed(2) + '% (24j)';
+    elBadge.style.color = up ? 'var(--green)' : 'var(--red)';
+    elBadge.style.background = up ? 'var(--green-dim)' : 'var(--red-dim)';
+  }
+
+  renderRealtimeChart();
+}
+
+function renderRealtimeChart() {
+  var ctx = document.getElementById('chartRealtime');
+  var hist = window._liveHistory || [];
+  if (!ctx || hist.length === 0 || typeof Chart === 'undefined') return;
+
+  destroyChart('chartRealtime');
+  if (typeof updateChartDefaults === 'function') updateChartDefaults();
+
+  var labels = hist.map(function(p) {
+    return new Date(p.t).toLocaleTimeString('id-ID', {hour:'2-digit', minute:'2-digit'});
+  });
+  var data = hist.map(function(p) { return p.usd; });
+  var isUp = data[data.length - 1] >= data[0];
+  var C = (typeof getChartColors === 'function') ? getChartColors() : null;
+  var lineColor = isUp ? (C ? C.green : '#00e5a0') : (C ? C.red : '#ff3d5c');
+  var fillColor = isUp ? 'rgba(0,229,160,0.10)' : 'rgba(255,61,92,0.10)';
+
+  chartInstances['chartRealtime'] = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: labels,
+      datasets: [{
+        data: data,
+        borderColor: lineColor,
+        backgroundColor: fillColor,
+        borderWidth: 2,
+        pointRadius: 0,
+        pointHoverRadius: 4,
+        pointHoverBackgroundColor: lineColor,
+        pointHoverBorderColor: '#080b12',
+        fill: true,
+        tension: 0.3
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: { duration: 400 },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#161f2e',
+          borderColor: 'rgba(255,255,255,0.1)',
+          borderWidth: 1,
+          titleColor: '#8496b0',
+          bodyColor: '#e2eaf5',
+          padding: 10,
+          cornerRadius: 8,
+          callbacks: { label: function(c) { return ' $' + Number(c.raw).toLocaleString('en-US'); } }
+        }
+      },
+      scales: {
+        x: {
+          grid: { color: 'rgba(255,255,255,0.04)', drawBorder: false },
+          ticks: { color: '#4d6080', font: { family: "'DM Mono', monospace", size: 10 }, maxTicksLimit: 6 }
+        },
+        y: {
+          grid: { color: 'rgba(255,255,255,0.04)', drawBorder: false },
+          ticks: {
+            color: '#4d6080', font: { family: "'DM Mono', monospace", size: 10 },
+            callback: function(v) { return '$' + Number(v).toLocaleString('en-US'); }
+          }
+        }
+      }
+    }
+  });
+}
+
+function useCurrentPrice() {
+  var p = window._livePrice.usd;
+  if (!p) { if(typeof toast==='function') toast('Harga belum tersedia'); return; }
+  showTab('harian');
+  setTimeout(function() {
+    var el = document.getElementById('h-price');
+    if (el) {
+      el.value = Math.round(p);
+      el.style.borderColor = 'var(--gold)';
+      setTimeout(function(){ el.style.borderColor = ''; }, 2000);
+    }
+    if(typeof toast==='function') toast('Harga live sudah diisi! Klik + Tambah untuk simpan.');
+  }, 100);
+}
+
+function refreshLivePrice() {
+  window._livePrice.loading = false;
+  fetchLivePrice();
+  if(typeof toast==='function') toast('Memperbarui harga...');
+}
+
+// Ambil histori 24 jam dulu supaya grafik langsung terlihat bagus,
+// baru mulai polling harga live tiap 60 detik
+(async function initLivePrice() {
+  await seedLiveHistory();
+  await fetchLivePrice();
+  setInterval(fetchLivePrice, 60000);
+})();
+
+// Begitu koneksi internet kembali (mis. wifi sempat putus), langsung coba ambil harga lagi.
+window.addEventListener('online', function() {
+  if(typeof toast==='function') toast('Koneksi kembali — memuat ulang harga live...');
+  window._liveRetryCount = 0;
+  fetchLivePrice();
+});
+
+// Ambil data BTC Cycle Health di background (pakai cache 24 jam kalau masih segar)
+// supaya sudah siap begitu tab "Cycle" dibuka.
+if (typeof refreshCycleData === 'function') {
+  setTimeout(function(){ refreshCycleData(false); }, 1500);
+}
+
+
+// ══════════════════════════════════════════════════════
+// Mini onchain health card untuk Dashboard
+// Membaca dari cache DAN input fields, agar langsung
+// muncul tanpa harus buka tab Market Cycle dulu.
+// ══════════════════════════════════════════════════════
+function updateDashOnchainCard() {
+  var card = document.getElementById('dash-onchain-card');
+  if (!card) return;
+
+  // Prioritas: input field (jika sudah diisi) > cache
+  function getVal(inputId, cacheKey) {
+    var el = document.getElementById(inputId);
+    if (el && el.value !== '') {
+      var v = parseFloat(el.value);
+      // Validasi field manual juga
+      if (!isNaN(v) && isValidOnchainVal(cacheKey, v)) return v;
+      if (cacheKey === 'fg' && !isNaN(v) && v >= 0 && v <= 100) return v;
+    }
+    // Coba dari cycle cache
+    try {
+      var cached = typeof readCycleCache === 'function' ? readCycleCache() : null;
+      if (cached) {
+        if (cacheKey === 'fg' && cached.fg !== null && cached.fg >= 0 && cached.fg <= 100) return cached.fg;
+        if (cacheKey !== 'fg' && cached.onchain && isValidOnchainVal(cacheKey, cached.onchain[cacheKey])) return cached.onchain[cacheKey];
+      }
+    } catch(e) {}
+    return null;
+  }
+
+  var fg    = getVal('ci-fg',   'fg');
+  var mvrv  = getVal('ci-mvrv', 'mvrv-zscore');
+  var nupl  = getVal('ci-nupl', 'nupl');
+  var puell = getVal('ci-puell','puell');
+
+  var fgR   = (typeof scoreFearGreed === 'function') ? scoreFearGreed(fg)   : {score:null, status:'–', color:'var(--text3)'};
+  var mvrvR = (typeof scoreMVRV === 'function')      ? scoreMVRV(mvrv)      : {score:null, status:'–', color:'var(--text3)'};
+  var nuplR = (typeof scoreNUPL === 'function')      ? scoreNUPL(nupl)      : {score:null, status:'–', color:'var(--text3)'};
+  var puellR= (typeof scorePuell === 'function')     ? scorePuell(puell)    : {score:null, status:'–', color:'var(--text3)'};
+
+  var cycleScore = (typeof calcCycleScore === 'function') ? calcCycleScore(fgR.score, mvrvR.score, nuplR.score) : null;
+
+  // Jika semua data null → tampilkan prompt ke Market Cycle
+  if (fg === null && mvrv === null && nupl === null) {
+    card.innerHTML = '<div style="padding:14px 12px">'
+      + '<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">'
+      + '<div style="width:44px;height:44px;border-radius:50%;background:var(--card2);border:2px solid var(--border2);display:flex;align-items:center;justify-content:center;flex-shrink:0">'
+      + '<span style="font-size:16px;color:var(--text3)">–</span></div>'
+      + '<div><div style="font-size:12px;font-weight:700;color:var(--text2)">Data On-Chain Belum Tersedia</div>'
+      + '<div style="font-size:10px;color:var(--text3);margin-top:2px">Buka Market Cycle untuk memuat otomatis</div></div></div>'
+      + '<button onclick="showTab(\'cycle\')" style="width:100%;padding:8px;background:var(--gold-dim);color:var(--gold);border:1px solid rgba(247,147,26,0.3);border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;font-family:var(--sans)">Buka Market Cycle & Muat Data &#8594;</button>'
+      + '</div>';
+    return;
+  }
+
+  // Score color — tinggi = hijau (akumulasi), rendah = merah (overheated)
+  var scoreColor = cycleScore === null ? 'var(--text3)' :
+    cycleScore >= 81 ? 'var(--green)' :
+    cycleScore >= 61 ? 'var(--green)' :
+    cycleScore >= 41 ? 'var(--yellow)' :
+    cycleScore >= 21 ? 'var(--orange)' : 'var(--red)';
+
+  var phase = (typeof cycleScoreStatus === 'function') ? cycleScoreStatus(cycleScore) : {label:'–', color:'var(--text3)', action:'–'};
+  var cyclePos = (typeof calcCyclePosition === 'function') ? calcCyclePosition(fg, mvrv, nupl) : null;
+  var dataBadge = (typeof getDataSourceBadge === 'function') ? getDataSourceBadge(fg, mvrv, nupl) : {text:'–', color:'var(--text3)'};
+
+  // Progress bar fill for score
+  var pct = cycleScore !== null ? Math.min(100, Math.max(0, cycleScore)) : 0;
+
+  var html = '';
+
+  // Top: score ring + accumulation label + data badge
+  html += '<div style="display:flex;align-items:center;gap:14px;margin-bottom:10px">';
+  html += '<div style="position:relative;width:62px;height:62px;flex-shrink:0">';
+  html += '<svg width="62" height="62" viewBox="0 0 62 62">';
+  html += '<circle cx="31" cy="31" r="26" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="7"/>';
+  var circ = 2 * Math.PI * 26;
+  var offset = circ - (circ * pct / 100);
+  html += '<circle cx="31" cy="31" r="26" fill="none" stroke="' + scoreColor + '" stroke-width="7" stroke-linecap="round" stroke-dasharray="' + circ.toFixed(1) + '" stroke-dashoffset="' + offset.toFixed(1) + '" transform="rotate(-90 31 31)" style="transition:stroke-dashoffset 0.8s ease"/>';
+  html += '</svg>';
+  html += '<div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center">';
+  html += '<span style="font-family:var(--mono);font-size:15px;font-weight:700;color:' + scoreColor + ';line-height:1">' + (cycleScore !== null ? cycleScore : '–') + '</span>';
+  html += '<span style="font-size:8px;color:var(--text3)">/100</span>';
+  html += '</div></div>';
+
+  html += '<div style="flex:1;min-width:0">';
+  html += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:3px">';
+  html += '<div style="font-size:9px;color:var(--text3);font-weight:700;text-transform:uppercase;letter-spacing:0.5px">Accumulation Score</div>';
+  html += '<span style="font-size:8px;font-weight:700;padding:1px 6px;border-radius:8px;color:' + dataBadge.color + ';border:1px solid ' + dataBadge.color + ';opacity:0.9">' + dataBadge.text + '</span>';
+  html += '</div>';
+  html += '<div style="font-size:13px;font-weight:700;color:' + phase.color + ';margin-bottom:3px">' + phase.label + '</div>';
+  html += '<div style="font-size:10px;color:var(--text2)">' + (phase.action || '') + '</div>';
+  html += '</div></div>';
+
+  // Cycle Position — terpisah dari Accumulation Score
+  var cpLabel = cyclePos ? cyclePos.label : '– Insufficient Data';
+  var cpColor = cyclePos ? cyclePos.color : 'var(--text3)';
+  html += '<div style="background:var(--card2);border-radius:8px;padding:8px 10px;margin-bottom:10px;border:1px solid var(--border)">';
+  html += '<div style="font-size:9px;color:var(--text3);font-weight:700;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:3px">📍 Cycle Position</div>';
+  html += '<div style="font-size:12px;font-weight:700;color:' + cpColor + '">' + cpLabel + '</div>';
+  html += '</div>';
+
+  // Progress bar
+  html += '<div style="background:var(--bg3);border-radius:4px;height:5px;margin-bottom:10px;overflow:hidden">';
+  html += '<div style="height:100%;width:' + pct + '%;background:' + scoreColor + ';border-radius:4px;transition:width 0.8s ease"></div>';
+  html += '</div>';
+
+  // 4 metric mini cards
+  html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-bottom:10px">';
+  var metrics = [
+    { name: 'Fear & Greed', val: fg, res: fgR, fmt: function(v){ return v !== null ? Math.round(v) : '–'; } },
+    { name: 'MVRV Z-Score', val: mvrv, res: mvrvR, fmt: function(v){ return v !== null ? parseFloat(v).toFixed(2) : '–'; } },
+    { name: 'NUPL', val: nupl, res: nuplR, fmt: function(v){ return v !== null ? parseFloat(v).toFixed(2) : '–'; } },
+    { name: 'Puell Multiple', val: puell, res: puellR, fmt: function(v){ return v !== null ? parseFloat(v).toFixed(2) : '–'; } },
+  ];
+  metrics.forEach(function(m) {
+    var c = (m.val !== null && m.res && m.res.color) ? m.res.color : 'var(--text3)';
+    var st = (m.res && m.res.status) ? m.res.status.replace(/[🟢🟡🔴🟠]/g,'').trim() : (m.val !== null ? '' : 'Belum ada data');
+    html += '<div style="background:var(--card2);border-radius:8px;padding:8px 10px;border:1px solid var(--border)">';
+    html += '<div style="font-size:9px;color:var(--text3);font-weight:700;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:3px">' + m.name + '</div>';
+    html += '<div style="font-family:var(--mono);font-size:14px;font-weight:700;color:' + c + '">' + m.fmt(m.val) + '</div>';
+    html += '<div style="font-size:9px;color:' + c + ';margin-top:2px">' + st + '</div>';
+    html += '</div>';
+  });
+  html += '</div>';
+
+  // Footer: link to Market Cycle
+  html += '<div style="display:flex;justify-content:flex-end">';
+  html += '<button onclick="showTab(\'cycle\')" style="background:none;border:1px solid var(--border2);border-radius:6px;color:var(--text3);font-size:10px;padding:4px 10px;cursor:pointer;font-family:var(--sans)">Lihat Detail &#8594;</button>';
+  html += '</div>';
+
+  card.innerHTML = html;
+}
+
+
+</script>
 </body>
-</html>
