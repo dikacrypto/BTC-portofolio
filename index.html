@@ -2581,7 +2581,11 @@
     </div>
   </details>
 
-  <div class="section-title">Metrik On-Chain Lainnya <span style="font-size:9px;color:var(--text3);font-weight:400">· info saja, tidak memengaruhi skor</span></div>
+  <div class="section-title" style="display:flex;align-items:center;justify-content:space-between">
+    <span>Metrik On-Chain Lainnya <span style="font-size:9px;color:var(--text3);font-weight:400">· info saja, tidak memengaruhi skor</span></span>
+    <button onclick="clearAllOnchainManualInputs()" style="background:none;border:1px solid var(--border2);border-radius:6px;color:var(--text3);font-size:9px;padding:4px 8px;cursor:pointer;font-family:var(--sans)">Reset input manual</button>
+  </div>
+  <div style="font-size:10px;color:var(--text3);margin:-6px 0 8px;line-height:1.5">💡 Kartu dengan tanda "–" berarti API gagal ambil data. Tap kartu itu untuk membuka sumber data eksternal & mengisinya manual.</div>
   <div id="cycle-metrics-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px"></div>
 
   <div class="section-title">Days Until Next Halving</div>
@@ -4701,20 +4705,63 @@ const CYCLE_CACHE_MAX_AGE = 24 * 60 * 60 * 1000; // 24 jam
 const BG_API_BASE = 'https://api.bgeometrics.com/v1';
 
 // Daftar metrik on-chain tambahan (informasi saja, tidak memengaruhi skor)
+// sourceUrl: dipakai saat data tidak berhasil diambil otomatis dari API —
+// tombol "Buka Sumber Data" akan mengarahkan user ke halaman ini untuk
+// melihat nilainya sendiri, lalu bisa diinput manual (tersimpan permanen di app ini).
 const ONCHAIN_METRICS_CONFIG = [
-  { key: 'sopr', name: 'SOPR', slug: 'sopr', desc: 'Spent Output Profit Ratio. >1 berarti rata-rata koin yang dijual hari ini dalam kondisi untung; <1 berarti rugi. SOPR turun ke ~1 saat koreksi sering jadi area support psikologis.', fmt: v => v.toFixed(3), zone: v => v >= 1 ? { c: 'var(--green)', l: 'Profit' } : { c: 'var(--red)', l: 'Rugi' } },
-  { key: 'asopr', name: 'aSOPR', slug: 'asopr', desc: 'Adjusted SOPR — sama seperti SOPR tapi mengabaikan koin yang berpindah dalam <1 jam (mengurangi noise dari exchange/bot). Lebih akurat untuk membaca perilaku holder sungguhan.', fmt: v => v.toFixed(3), zone: v => v >= 1 ? { c: 'var(--green)', l: 'Profit' } : { c: 'var(--red)', l: 'Rugi' } },
-  { key: 'realized-price', name: 'Realized Price', slug: 'realized-price', desc: 'Harga rata-rata di mana seluruh supply BTC terakhir kali berpindah tangan. Ini semacam "harga modal rata-rata" seluruh pasar — kalau harga pasar di bawah ini, mayoritas holder sedang rugi.', fmt: v => '$' + Math.round(v).toLocaleString('en-US'), zone: () => ({ c: 'var(--gold)', l: 'Referensi' }) },
-  { key: 'realized-cap', name: 'Realized Cap', slug: 'realized-cap', desc: 'Total nilai seluruh BTC dihitung dari harga saat terakhir kali berpindah (bukan harga pasar saat ini). Dipakai sebagai basis MVRV dan dianggap valuasi yang lebih "jujur" dibanding market cap.', fmt: v => '$' + (v/1e9).toFixed(1) + 'B', zone: () => ({ c: 'var(--gold)', l: 'Referensi' }) },
-  { key: 'reserve-risk', name: 'Reserve Risk', slug: 'reserve-risk', desc: 'Rasio harga terhadap keyakinan holder jangka panjang. Rendah (hijau) = holder yakin & harga relatif murah = risk/reward menarik. Tinggi (merah) = holder mulai ragu di harga tinggi.', fmt: v => v.toFixed(5), zone: v => v < 0.002 ? { c: 'var(--green)', l: 'Menarik' } : v < 0.02 ? { c: 'var(--yellow)', l: 'Netral' } : { c: 'var(--red)', l: 'Mahal' } },
-  { key: 'rhodl', name: 'RHODL Ratio', slug: 'rhodl-ratio', desc: 'Membandingkan kekayaan koin yang baru berpindah (1 minggu) vs koin lama (1-2 tahun). Tinggi = banyak aktivitas spekulatif jangka pendek, biasa terjadi mendekati puncak siklus.', fmt: v => Math.round(v).toLocaleString('en-US'), zone: v => v > 10000 ? { c: 'var(--red)', l: 'Overheated' } : v > 3000 ? { c: 'var(--yellow)', l: 'Waspada' } : { c: 'var(--green)', l: 'Sehat' } },
-  { key: 'puell', name: 'Puell Multiple', slug: 'puell-multiple', desc: 'Pendapatan harian miner dibagi rata-rata 365 hari. Sama seperti input di skor cycle di atas — ditampilkan lagi di sini sebagai referensi cepat.', fmt: v => v.toFixed(2), zone: v => v < 0.5 ? { c: 'var(--green)', l: 'Murah' } : v <= 4 ? { c: 'var(--yellow)', l: 'Normal' } : { c: 'var(--red)', l: 'Puncak?' } },
-  { key: 'mvrv-zscore', name: 'MVRV Z-Score', slug: 'mvrv-zscore', desc: 'Versi ternormalisasi dari MVRV, dipakai juga sebagai salah satu komponen skor di atas. Ditampilkan lagi di sini untuk referensi cepat.', fmt: v => v.toFixed(2), zone: v => v < 1 ? { c: 'var(--green)', l: 'Undervalued' } : v <= 4 ? { c: 'var(--yellow)', l: 'Fair' } : { c: 'var(--red)', l: 'Overvalued' } },
-  { key: 'nupl', name: 'NUPL', slug: 'nupl', desc: 'Net Unrealized Profit/Loss — persentase supply yang sedang untung dikurangi yang rugi. Juga komponen skor di atas, ditampilkan lagi sebagai referensi cepat.', fmt: v => (v*100).toFixed(1) + '%', zone: v => v < 0 ? { c: 'var(--green)', l: 'Capitulation' } : v <= 0.5 ? { c: 'var(--green)', l: 'Optimism' } : v <= 0.75 ? { c: 'var(--yellow)', l: 'Belief' } : { c: 'var(--red)', l: 'Euphoria' } },
-  { key: 'sth-mvrv', name: 'STH-MVRV', slug: 'sth-mvrv', desc: 'MVRV khusus untuk Short-Term Holder (kepemilikan <155 hari). Lebih sensitif terhadap pergerakan harga jangka pendek dibanding MVRV biasa.', fmt: v => v.toFixed(2), zone: v => v >= 1 ? { c: 'var(--green)', l: 'STH Profit' } : { c: 'var(--red)', l: 'STH Rugi' } },
-  { key: 'lth-mvrv', name: 'LTH-MVRV', slug: 'lth-mvrv', desc: 'MVRV khusus untuk Long-Term Holder (kepemilikan ≥155 hari). Mencerminkan seberapa besar profit holder jangka panjang — sering jadi sinyal kapan LTH mulai distribusi.', fmt: v => v.toFixed(2), zone: v => v >= 3.5 ? { c: 'var(--red)', l: 'LTH Distribusi?' } : { c: 'var(--green)', l: 'LTH Hold' } },
-  { key: 'exchange-netflow', name: 'Exchange Netflow', slug: 'exchange-netflow', desc: 'Selisih BTC yang masuk vs keluar dari exchange. Negatif (BTC keluar exchange) biasanya bullish (akumulasi/self-custody). Positif (BTC masuk exchange) sering mengindikasikan potensi tekanan jual.', fmt: v => (v>=0?'+':'') + v.toFixed(1) + ' BTC', zone: v => v < 0 ? { c: 'var(--green)', l: 'Keluar Exchange' } : { c: 'var(--red)', l: 'Masuk Exchange' } }
+  { key: 'sopr', name: 'SOPR', slug: 'sopr', sourceUrl: 'https://www.google.com/search?q=bitcoin+SOPR+spent+output+profit+ratio+live+chart', desc: 'Spent Output Profit Ratio. >1 berarti rata-rata koin yang dijual hari ini dalam kondisi untung; <1 berarti rugi. SOPR turun ke ~1 saat koreksi sering jadi area support psikologis.', fmt: v => v.toFixed(3), zone: v => v >= 1 ? { c: 'var(--green)', l: 'Profit' } : { c: 'var(--red)', l: 'Rugi' } },
+  { key: 'asopr', name: 'aSOPR', slug: 'asopr', sourceUrl: 'https://www.google.com/search?q=bitcoin+adjusted+SOPR+aSOPR+live+chart', desc: 'Adjusted SOPR — sama seperti SOPR tapi mengabaikan koin yang berpindah dalam <1 jam (mengurangi noise dari exchange/bot). Lebih akurat untuk membaca perilaku holder sungguhan.', fmt: v => v.toFixed(3), zone: v => v >= 1 ? { c: 'var(--green)', l: 'Profit' } : { c: 'var(--red)', l: 'Rugi' } },
+  { key: 'realized-price', name: 'Realized Price', slug: 'realized-price', sourceUrl: 'https://charts.bitbo.io/realized-price/', desc: 'Harga rata-rata di mana seluruh supply BTC terakhir kali berpindah tangan. Ini semacam "harga modal rata-rata" seluruh pasar — kalau harga pasar di bawah ini, mayoritas holder sedang rugi.', fmt: v => '$' + Math.round(v).toLocaleString('en-US'), zone: () => ({ c: 'var(--gold)', l: 'Referensi' }) },
+  { key: 'realized-cap', name: 'Realized Cap', slug: 'realized-cap', sourceUrl: 'https://www.google.com/search?q=bitcoin+realized+cap+live+chart', desc: 'Total nilai seluruh BTC dihitung dari harga saat terakhir kali berpindah (bukan harga pasar saat ini). Dipakai sebagai basis MVRV dan dianggap valuasi yang lebih "jujur" dibanding market cap.', fmt: v => '$' + (v/1e9).toFixed(1) + 'B', zone: () => ({ c: 'var(--gold)', l: 'Referensi' }) },
+  { key: 'reserve-risk', name: 'Reserve Risk', slug: 'reserve-risk', sourceUrl: 'https://www.google.com/search?q=bitcoin+reserve+risk+live+chart', desc: 'Rasio harga terhadap keyakinan holder jangka panjang. Rendah (hijau) = holder yakin & harga relatif murah = risk/reward menarik. Tinggi (merah) = holder mulai ragu di harga tinggi.', fmt: v => v.toFixed(5), zone: v => v < 0.002 ? { c: 'var(--green)', l: 'Menarik' } : v < 0.02 ? { c: 'var(--yellow)', l: 'Netral' } : { c: 'var(--red)', l: 'Mahal' } },
+  { key: 'rhodl', name: 'RHODL Ratio', slug: 'rhodl-ratio', sourceUrl: 'https://www.google.com/search?q=bitcoin+RHODL+ratio+live+chart', desc: 'Membandingkan kekayaan koin yang baru berpindah (1 minggu) vs koin lama (1-2 tahun). Tinggi = banyak aktivitas spekulatif jangka pendek, biasa terjadi mendekati puncak siklus.', fmt: v => Math.round(v).toLocaleString('en-US'), zone: v => v > 10000 ? { c: 'var(--red)', l: 'Overheated' } : v > 3000 ? { c: 'var(--yellow)', l: 'Waspada' } : { c: 'var(--green)', l: 'Sehat' } },
+  { key: 'puell', name: 'Puell Multiple', slug: 'puell-multiple', sourceUrl: 'https://charts.bitbo.io/puell-multiple/', desc: 'Pendapatan harian miner dibagi rata-rata 365 hari. Sama seperti input di skor cycle di atas — ditampilkan lagi di sini sebagai referensi cepat.', fmt: v => v.toFixed(2), zone: v => v < 0.5 ? { c: 'var(--green)', l: 'Murah' } : v <= 4 ? { c: 'var(--yellow)', l: 'Normal' } : { c: 'var(--red)', l: 'Puncak?' } },
+  { key: 'mvrv-zscore', name: 'MVRV Z-Score', slug: 'mvrv-zscore', sourceUrl: 'https://www.lookintobitcoin.com/charts/mvrv-zscore/', desc: 'Versi ternormalisasi dari MVRV, dipakai juga sebagai salah satu komponen skor di atas. Ditampilkan lagi di sini untuk referensi cepat.', fmt: v => v.toFixed(2), zone: v => v < 1 ? { c: 'var(--green)', l: 'Undervalued' } : v <= 4 ? { c: 'var(--yellow)', l: 'Fair' } : { c: 'var(--red)', l: 'Overvalued' } },
+  { key: 'nupl', name: 'NUPL', slug: 'nupl', sourceUrl: 'https://charts.bitbo.io/nupl/', desc: 'Net Unrealized Profit/Loss — persentase supply yang sedang untung dikurangi yang rugi. Juga komponen skor di atas, ditampilkan lagi sebagai referensi cepat.', fmt: v => (v*100).toFixed(1) + '%', zone: v => v < 0 ? { c: 'var(--green)', l: 'Capitulation' } : v <= 0.5 ? { c: 'var(--green)', l: 'Optimism' } : v <= 0.75 ? { c: 'var(--yellow)', l: 'Belief' } : { c: 'var(--red)', l: 'Euphoria' } },
+  { key: 'sth-mvrv', name: 'STH-MVRV', slug: 'sth-mvrv', sourceUrl: 'https://www.google.com/search?q=bitcoin+STH-MVRV+short+term+holder+live+chart', desc: 'MVRV khusus untuk Short-Term Holder (kepemilikan <155 hari). Lebih sensitif terhadap pergerakan harga jangka pendek dibanding MVRV biasa.', fmt: v => v.toFixed(2), zone: v => v >= 1 ? { c: 'var(--green)', l: 'STH Profit' } : { c: 'var(--red)', l: 'STH Rugi' } },
+  { key: 'lth-mvrv', name: 'LTH-MVRV', slug: 'lth-mvrv', sourceUrl: 'https://www.google.com/search?q=bitcoin+LTH-MVRV+long+term+holder+live+chart', desc: 'MVRV khusus untuk Long-Term Holder (kepemilikan ≥155 hari). Mencerminkan seberapa besar profit holder jangka panjang — sering jadi sinyal kapan LTH mulai distribusi.', fmt: v => v.toFixed(2), zone: v => v >= 3.5 ? { c: 'var(--red)', l: 'LTH Distribusi?' } : { c: 'var(--green)', l: 'LTH Hold' } },
+  { key: 'exchange-netflow', name: 'Exchange Netflow', slug: 'exchange-netflow', sourceUrl: 'https://www.google.com/search?q=bitcoin+exchange+netflow+live+chart', desc: 'Selisih BTC yang masuk vs keluar dari exchange. Negatif (BTC keluar exchange) biasanya bullish (akumulasi/self-custody). Positif (BTC masuk exchange) sering mengindikasikan potensi tekanan jual.', fmt: v => (v>=0?'+':'') + v.toFixed(1) + ' BTC', zone: v => v < 0 ? { c: 'var(--green)', l: 'Keluar Exchange' } : { c: 'var(--red)', l: 'Masuk Exchange' } }
 ];
+
+// ── Input manual untuk metrik on-chain tambahan di atas ──
+// Dipakai kalau API otomatis gagal mengambil metrik tertentu: user klik tombol
+// "Buka Sumber Data", cari angkanya sendiri di situs eksternal, lalu masukkan
+// nilainya di modal detail. Tersimpan permanen di browser (localStorage) dan
+// otomatis dipakai lagi setiap kali dashboard dibuka, sampai direset.
+const ONCHAIN_EXTRA_STORE = 'onchain_extra_manual_v1';
+function getOnchainManualOverrides() {
+  try { return JSON.parse(localStorage.getItem(ONCHAIN_EXTRA_STORE) || '{}'); }
+  catch(e) { return {}; }
+}
+function saveOnchainManualOverride(key, value) {
+  var data = getOnchainManualOverrides();
+  if (value === '' || value === null || value === undefined || isNaN(value)) {
+    delete data[key];
+  } else {
+    data[key] = parseFloat(value);
+  }
+  try { localStorage.setItem(ONCHAIN_EXTRA_STORE, JSON.stringify(data)); } catch(e) {}
+  return data;
+}
+function clearOnchainManualOverride(key) {
+  var data = getOnchainManualOverrides();
+  delete data[key];
+  try { localStorage.setItem(ONCHAIN_EXTRA_STORE, JSON.stringify(data)); } catch(e) {}
+}
+function clearAllOnchainManualInputs() {
+  try { localStorage.removeItem(ONCHAIN_EXTRA_STORE); } catch(e) {}
+  var cached = readCycleCache();
+  renderOnchainMetricsGrid(cached ? cached.onchain : null);
+  if (typeof toast === 'function') toast('Semua input manual on-chain dihapus');
+}
+// Gabungkan data API + input manual — manual SELALU menang (mengikuti konvensi
+// override MVRV/NUPL/Puell/F&G yang sudah ada di app ini).
+function mergeOnchainWithManual(onchain) {
+  var manual = getOnchainManualOverrides();
+  var merged = Object.assign({}, onchain || {});
+  Object.keys(manual).forEach(function(k) { merged[k] = manual[k]; });
+  return merged;
+}
 
 function fetchJsonTimeout(url, ms) {
   var controller = new AbortController();
@@ -4996,17 +5043,20 @@ function applyCycleData(data) {
 function renderOnchainMetricsGrid(onchain) {
   var grid = document.getElementById('cycle-metrics-grid');
   if (!grid) return;
+  var merged = mergeOnchainWithManual(onchain);
+  var manualKeys = getOnchainManualOverrides();
   grid.innerHTML = ONCHAIN_METRICS_CONFIG.map(function(m) {
-    var val = onchain ? onchain[m.key] : null;
+    var val = merged ? merged[m.key] : null;
+    var isManual = manualKeys.hasOwnProperty(m.key);
     if (val == null || isNaN(val)) {
-      return '<div class="metric-mini-card" onclick="openMetricDetail(\'' + m.key + '\')">' +
+      return '<div class="metric-mini-card" onclick="openMetricDetail(\'' + m.key + '\')" style="cursor:pointer">' +
         '<div class="metric-mini-name">' + m.name + '</div>' +
         '<div class="metric-mini-val" style="color:var(--text3)">–</div>' +
-        '<div class="metric-mini-status" style="color:var(--text3)">Data tidak tersedia</div></div>';
+        '<div class="metric-mini-status" style="color:var(--orange)">⚠️ Tap: cari & isi manual</div></div>';
     }
     var zone = m.zone(val);
-    return '<div class="metric-mini-card" onclick="openMetricDetail(\'' + m.key + '\')">' +
-      '<div class="metric-mini-name">' + m.name + '</div>' +
+    return '<div class="metric-mini-card" onclick="openMetricDetail(\'' + m.key + '\')" style="cursor:pointer">' +
+      '<div class="metric-mini-name">' + m.name + (isManual ? ' <span style="color:var(--blue);font-size:8px" title="Diisi manual">✍️</span>' : '') + '</div>' +
       '<div class="metric-mini-val" style="color:' + zone.c + '">' + m.fmt(val) + '</div>' +
       '<div class="metric-mini-status" style="color:' + zone.c + '">' + zone.l + '</div></div>';
   }).join('');
@@ -5016,16 +5066,60 @@ function openMetricDetail(key) {
   var m = ONCHAIN_METRICS_CONFIG.find(function(x){ return x.key === key; });
   if (!m) return;
   var cached = readCycleCache();
-  var val = cached && cached.onchain ? cached.onchain[key] : null;
+  var manualOverrides = getOnchainManualOverrides();
+  var isManual = manualOverrides.hasOwnProperty(key);
+  var apiVal = cached && cached.onchain ? cached.onchain[key] : null;
+  var val = isManual ? manualOverrides[key] : apiVal;
   var body = document.getElementById('metric-detail-body');
-  var valText = (val != null && !isNaN(val)) ? m.fmt(val) : 'Data tidak tersedia saat ini';
-  var zone = (val != null && !isNaN(val)) ? m.zone(val) : { c: 'var(--text3)', l: '' };
-  body.innerHTML =
-    '<div style="font-size:10px;color:var(--text3);font-weight:700;letter-spacing:0.5px;text-transform:uppercase;margin-bottom:4px">' + m.name + '</div>' +
+  var hasVal = (val != null && !isNaN(val));
+  var valText = hasVal ? m.fmt(val) : 'Data tidak tersedia dari API';
+  var zone = hasVal ? m.zone(val) : { c: 'var(--text3)', l: '' };
+
+  var html =
+    '<div style="font-size:10px;color:var(--text3);font-weight:700;letter-spacing:0.5px;text-transform:uppercase;margin-bottom:4px">' + m.name + (isManual ? ' <span style="color:var(--blue)">· Manual</span>' : '') + '</div>' +
     '<div style="font-family:var(--mono);font-size:26px;font-weight:600;color:' + zone.c + ';margin-bottom:2px">' + valText + '</div>' +
     (zone.l ? '<div style="font-size:12px;color:' + zone.c + ';font-weight:700;margin-bottom:12px">' + zone.l + '</div>' : '<div style="margin-bottom:12px"></div>') +
-    '<div style="font-size:12.5px;color:var(--text2);line-height:1.6">' + m.desc + '</div>';
+    '<div style="font-size:12.5px;color:var(--text2);line-height:1.6;margin-bottom:14px">' + m.desc + '</div>';
+
+  if (!hasVal || true) {
+    // Selalu tampilkan opsi cari sumber + input manual, supaya user bisa
+    // memperbarui/mengoreksi nilai kapan pun, bukan cuma saat API gagal.
+    html +=
+      '<div style="background:var(--blue-dim);border-left:2px solid var(--blue);border-radius:0 8px 8px 0;padding:10px 12px;margin-bottom:12px">' +
+        '<div style="font-size:11px;color:var(--text2);line-height:1.6;margin-bottom:8px">' +
+          (hasVal ? '💡 Ingin cek/perbarui angka dari sumber lain?' : '⚠️ Data ini tidak berhasil diambil otomatis. Cari nilainya di situs eksternal, lalu masukkan manual di bawah — akan tersimpan permanen di aplikasi ini.') +
+        '</div>' +
+        '<button onclick="window.open(\'' + m.sourceUrl + '\', \'_blank\')" style="width:100%;padding:9px;background:var(--gold-dim);color:var(--gold);border:1px solid rgba(247,147,26,0.3);border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;font-family:var(--sans)">🔗 Buka Sumber Data →</button>' +
+      '</div>' +
+      '<div style="display:flex;gap:6px;align-items:center;margin-bottom:6px">' +
+        '<input type="number" step="any" id="metric-manual-input" placeholder="' + (hasVal ? val : 'Masukkan nilai dari sumber di atas') + '" style="flex:1;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:9px 10px;color:var(--text);font-family:var(--mono);font-size:13px">' +
+        '<button onclick="saveMetricManualInput(\'' + key + '\')" style="padding:9px 14px;background:var(--green-dim);color:var(--green);border:1px solid rgba(34,211,165,0.3);border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;font-family:var(--sans)">Simpan</button>' +
+      '</div>' +
+      (isManual ? '<button onclick="clearMetricManualInput(\'' + key + '\')" style="width:100%;margin-top:2px;background:none;border:1px solid var(--border2);border-radius:8px;color:var(--text3);font-size:10px;padding:6px;cursor:pointer;font-family:var(--sans)">Hapus input manual, pakai data API lagi</button>' : '');
+  }
+
+  body.innerHTML = html;
   document.getElementById('metric-detail-overlay').style.display = 'flex';
+}
+
+function saveMetricManualInput(key) {
+  var input = document.getElementById('metric-manual-input');
+  if (!input) return;
+  var raw = input.value.trim();
+  if (raw === '' || isNaN(parseFloat(raw))) { if(typeof toast==='function') toast('⚠️ Masukkan angka yang valid'); return; }
+  saveOnchainManualOverride(key, parseFloat(raw));
+  var cached = readCycleCache();
+  renderOnchainMetricsGrid(cached ? cached.onchain : null);
+  if (typeof toast === 'function') toast('✅ Nilai manual tersimpan');
+  openMetricDetail(key); // refresh modal dengan nilai baru
+}
+
+function clearMetricManualInput(key) {
+  clearOnchainManualOverride(key);
+  var cached = readCycleCache();
+  renderOnchainMetricsGrid(cached ? cached.onchain : null);
+  if (typeof toast === 'function') toast('Input manual dihapus, kembali ke data API');
+  openMetricDetail(key);
 }
 
 function closeMetricDetail() {
