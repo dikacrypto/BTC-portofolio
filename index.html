@@ -3252,10 +3252,19 @@ function calcBulananRowsFull(bulanan, ammoLog, settings, overrideCurrentPrice) {
   const rows = [];
   const sortedBulanan = bulanan.slice().sort((a,b) => a.month.localeCompare(b.month));
 
-  for (let i = 0; i < sortedBulanan.length; i++) {
-    const row = sortedBulanan[i];
+  // BUG FIX: sebelumnya loop hanya jalan berdasarkan bulan yang SUDAH ada entri DCA bulanan.
+  // Kalau AMMO dicatat di bulan yang belum ada entri DCA-nya, AMMO itu hilang (tidak pernah
+  // ditambahkan ke cumBTC/cumModal), sehingga avg price & nilai portofolio tidak berubah.
+  // Fix: bangun baris dari GABUNGAN bulan yang punya entri DCA ATAU entri AMMO.
+  const bulananByMonth = {};
+  for (const b of sortedBulanan) bulananByMonth[b.month] = b;
+  const allMonths = Array.from(new Set([...sortedBulanan.map(b => b.month), ...Object.keys(ammoBulan)])).sort();
+
+  for (let i = 0; i < allMonths.length; i++) {
+    const month = allMonths[i];
+    const row = bulananByMonth[month] || { month, price: 0, dca: 0, isAmmoOnly: true };
     const entryPrice = row.price || 0; // harga saat DCA dilakukan bulan tsb
-    const dca = row.dca || settings.dcaBulanan;
+    const dca = row.isAmmoOnly ? 0 : (row.dca || settings.dcaBulanan);
     const btcDCA = entryPrice > 0 ? dca / entryPrice : 0;
     const ammoMonthData = ammoBulan[row.month] || { totalUsd: 0, totalBtc: 0 };
     const ammoUsed = ammoMonthData.totalUsd;
@@ -3269,7 +3278,7 @@ function calcBulananRowsFull(bulanan, ammoLog, settings, overrideCurrentPrice) {
 
     // Untuk baris terakhir: gunakan harga harian terkini jika tersedia
     // Untuk baris sebelumnya: gunakan harga entry bulanan (data historis)
-    const isLastRow = i === sortedBulanan.length - 1;
+    const isLastRow = i === allMonths.length - 1;
     const priceForValuation = isLastRow && latestDailyPrice > 0 ? latestDailyPrice : entryPrice;
     const price = entryPrice; // harga beli bulan ini (untuk referensi)
 
@@ -7711,3 +7720,4 @@ function updateDashOnchainCard() {
 
 </script>
 </body>
+</html>
